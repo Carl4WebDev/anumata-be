@@ -44,7 +44,7 @@ export default class SessionRepo extends ISessionRepo {
     );
 
     const result = await db.query(
-      `SELECT s.session_id, s.emotion_summary, s.risk_level, s.emotional_spikes, s.notes, s.created_at,
+      `SELECT s.session_id, s.emotion_summary, s.risk_level, s.emotional_spikes, s.transcript, s.notes, s.created_at,
               p.full_name as patient_name,
               qs.name as template_name
        FROM sessions s
@@ -72,7 +72,7 @@ export default class SessionRepo extends ISessionRepo {
     );
 
     const result = await db.query(
-      `SELECT s.session_id, s.emotion_summary, s.risk_level, s.emotional_spikes, s.notes, s.created_at,
+      `SELECT s.session_id, s.emotion_summary, s.risk_level, s.emotional_spikes, s.transcript, s.notes, s.created_at,
               p.patient_id, p.full_name as patient_name,
               qs.name as template_name
        FROM sessions s

@@ -42,12 +42,32 @@ export default class EmotionAnalysisService {
       throw new AppError("ML service unavailable", 503, "ML_SERVICE_UNAVAILABLE");
     }
 
+    // Check if session already exists for this interview link (prevent duplicates)
+    const existingSession = await this.sessionRepo.findByInterviewLinkId(link.interview_link_id);
+    if (existingSession) {
+      return {
+        session_id: existingSession.session_id,
+        risk_level: existingSession.risk_level,
+        distribution: existingSession.emotion_summary?.distribution || {},
+        indicators: existingSession.emotion_summary?.indicators || [],
+        spikes: existingSession.emotional_spikes || [],
+        per_question: (existingSession.transcript || []).map((t, i) => ({
+          question_index: i,
+          fer: { emotion: t.fer_emotion, confidence: t.fer_confidence || 0, probabilities: {} },
+          ser: { emotion: t.ser_emotion, confidence: t.ser_confidence || 0, probabilities: {} },
+          combined_emotion: t.combined_emotion,
+        })),
+      };
+    }
+
     // Build transcript from per-question results
     const questions = link.questions || [];
     const transcript = (mlResult.per_question || []).map((q, i) => ({
-      question: questions[i] || `Question ${i + 1}`,
+      question: (typeof questions[i] === "object" ? questions[i]?.text : questions[i]) || `Question ${i + 1}`,
       fer_emotion: q.fer?.emotion || null,
+      fer_confidence: q.fer?.confidence || 0,
       ser_emotion: q.ser?.emotion || null,
+      ser_confidence: q.ser?.confidence || 0,
       combined_emotion: q.combined_emotion,
     }));
 
