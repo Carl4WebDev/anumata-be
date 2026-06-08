@@ -4,9 +4,9 @@ import db from "../../../core/database/db.js";
 export default class SessionRepo extends ISessionRepo {
   async create(session) {
     const result = await db.query(
-      `INSERT INTO sessions (interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb)
-       RETURNING session_id, interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, notes, created_at`,
+      `INSERT INTO sessions (interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, emotional_events, session_highlights)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9::jsonb)
+       RETURNING session_id, interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, emotional_events, session_highlights, notes, created_at`,
       [
         session.interview_link_id,
         session.patient_id,
@@ -15,6 +15,8 @@ export default class SessionRepo extends ISessionRepo {
         JSON.stringify(session.emotion_summary),
         session.risk_level,
         JSON.stringify(session.emotional_spikes || []),
+        JSON.stringify(session.emotional_events || []),
+        JSON.stringify(session.session_highlights || null),
       ],
     );
 

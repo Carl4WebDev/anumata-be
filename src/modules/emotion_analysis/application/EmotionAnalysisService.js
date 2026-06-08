@@ -1,5 +1,6 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
+import { generateEmotionalEventReport } from "./EmotionEventReportGenerator.js";
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
 
@@ -60,10 +61,11 @@ export default class EmotionAnalysisService {
       };
     }
 
-    // Build transcript from per-question results
+    // Build transcript from per-question results (including STT transcript text)
     const questions = link.questions || [];
     const transcript = (mlResult.per_question || []).map((q, i) => ({
       question: (typeof questions[i] === "object" ? questions[i]?.text : questions[i]) || `Question ${i + 1}`,
+      answer: q.transcript_text || "[Audio response recorded]",
       fer_emotion: q.fer?.emotion || null,
       fer_confidence: q.fer?.confidence || 0,
       ser_emotion: q.ser?.emotion || null,
@@ -80,6 +82,10 @@ export default class EmotionAnalysisService {
     // Build emotional_spikes
     const emotionalSpikes = mlResult.spikes || [];
 
+    // Generate emotional event report
+    const questionTexts = questions.map((q) => (typeof q === "object" ? q?.text : q) || "");
+    const emotionalEventReport = generateEmotionalEventReport(mlResult, questionTexts, 0);
+
     // Create session record
     const session = await this.sessionRepo.create({
       interview_link_id: link.interview_link_id,
@@ -89,6 +95,8 @@ export default class EmotionAnalysisService {
       emotion_summary: emotionSummary,
       risk_level: mlResult.risk_level || "Low",
       emotional_spikes: emotionalSpikes,
+      emotional_events: emotionalEventReport.emotional_events,
+      session_highlights: emotionalEventReport.session_highlights,
     });
 
     // Mark interview link as completed
@@ -101,6 +109,8 @@ export default class EmotionAnalysisService {
       indicators: mlResult.indicators,
       spikes: emotionalSpikes,
       per_question: mlResult.per_question,
+      emotional_events: emotionalEventReport.emotional_events,
+      session_highlights: emotionalEventReport.session_highlights,
     };
   }
 
@@ -122,6 +132,8 @@ export default class EmotionAnalysisService {
       indicators: session.emotion_summary?.indicators || [],
       spikes: session.emotional_spikes || [],
       transcript: session.transcript || [],
+      emotional_events: session.emotional_events || [],
+      session_highlights: session.session_highlights || null,
       created_at: session.created_at,
     };
   }
