@@ -54,11 +54,30 @@ export default class EmotionAnalysisService {
         spikes: existingSession.emotional_spikes || [],
         per_question: (existingSession.transcript || []).map((t, i) => ({
           question_index: i,
-          fer: { emotion: t.fer_emotion, confidence: t.fer_confidence || 0, probabilities: {} },
-          ser: { emotion: t.ser_emotion, confidence: t.ser_confidence || 0, probabilities: {} },
+          fer: { emotion: t.fer_emotion, confidence: t.fer_confidence || 0, probabilities: t.fer_probabilities || {} },
+          ser: { emotion: t.ser_emotion, confidence: t.ser_confidence || 0, probabilities: t.ser_probabilities || {} },
           combined_emotion: t.combined_emotion,
+          facial_details: t.facial_details || null,
+          audio_details: t.audio_details || null,
+          text_analysis: t.text_analysis || null,
+          frame_image: t.frame_image || null,
         })),
+        emotional_events: existingSession.emotional_events || [],
+        session_highlights: existingSession.session_highlights || null,
       };
+    }
+
+    // Build a map of question_index → base64 frame image
+    const frameMap = {};
+    for (const file of files) {
+      if (file.originalname.startsWith("frame_")) {
+        try {
+          const idx = parseInt(file.originalname.replace("frame_", "").split(".")[0]);
+          frameMap[idx] = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+        } catch {
+          // Skip malformed filenames
+        }
+      }
     }
 
     // Build transcript from per-question results (including STT transcript text)
@@ -68,9 +87,15 @@ export default class EmotionAnalysisService {
       answer: q.transcript_text || "[Audio response recorded]",
       fer_emotion: q.fer?.emotion || null,
       fer_confidence: q.fer?.confidence || 0,
+      fer_probabilities: q.fer?.probabilities || {},
       ser_emotion: q.ser?.emotion || null,
       ser_confidence: q.ser?.confidence || 0,
+      ser_probabilities: q.ser?.probabilities || {},
       combined_emotion: q.combined_emotion,
+      facial_details: q.fer?.facial_details || null,
+      audio_details: q.ser?.audio_details || null,
+      text_analysis: q.text_analysis || null,
+      frame_image: frameMap[i] || null,
     }));
 
     // Build emotion_summary (distribution)
