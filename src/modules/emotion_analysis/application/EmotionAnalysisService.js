@@ -2,7 +2,8 @@ import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
 import { generateEmotionalEventReport } from "./EmotionEventReportGenerator.js";
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
+// Local Python AI service (FastAPI on port 8001)
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
 
 export default class EmotionAnalysisService {
   constructor(interviewLinkRepo, sessionRepo) {
@@ -17,17 +18,22 @@ export default class EmotionAnalysisService {
       throw new NotFoundError("Interview link not found");
     }
 
-    // Build FormData for anumata-ml
+    // Build FormData for AI service
     const formData = new FormData();
     for (const file of files) {
       const blob = new Blob([file.buffer], { type: file.mimetype || "application/octet-stream" });
       formData.append("files", blob, file.originalname);
     }
 
-    // Call anumata-ml /api/analyze
+    // Send question texts so AI service can include them in analysis
+    const questions = link.questions || [];
+    const questionTexts = questions.map((q) => (typeof q === "object" ? q?.text : q) || "");
+    formData.append("questions", JSON.stringify(questionTexts));
+
+    // Call AI service /api/analyze
     let mlResult;
     try {
-      const response = await fetch(`${ML_SERVICE_URL}/api/analyze`, {
+      const response = await fetch(`${AI_SERVICE_URL}/api/analyze`, {
         method: "POST",
         body: formData,
       });
@@ -56,6 +62,7 @@ export default class EmotionAnalysisService {
           question_index: i,
           fer: { emotion: t.fer_emotion, confidence: t.fer_confidence || 0, probabilities: t.fer_probabilities || {} },
           ser: { emotion: t.ser_emotion, confidence: t.ser_confidence || 0, probabilities: t.ser_probabilities || {} },
+          ler: { emotion: t.ler_emotion, confidence: t.ler_confidence || 0, probabilities: t.ler_probabilities || {}, language_detected: t.language_detected || null },
           combined_emotion: t.combined_emotion,
           facial_details: t.facial_details || null,
           audio_details: t.audio_details || null,
@@ -81,7 +88,6 @@ export default class EmotionAnalysisService {
     }
 
     // Build transcript from per-question results (including STT transcript text)
-    const questions = link.questions || [];
     const transcript = (mlResult.per_question || []).map((q, i) => ({
       question: (typeof questions[i] === "object" ? questions[i]?.text : questions[i]) || `Question ${i + 1}`,
       answer: q.transcript_text || "[Audio response recorded]",
@@ -91,6 +97,10 @@ export default class EmotionAnalysisService {
       ser_emotion: q.ser?.emotion || null,
       ser_confidence: q.ser?.confidence || 0,
       ser_probabilities: q.ser?.probabilities || {},
+      ler_emotion: q.ler?.emotion || null,
+      ler_confidence: q.ler?.confidence || 0,
+      ler_probabilities: q.ler?.probabilities || {},
+      language_detected: q.ler?.language_detected || null,
       combined_emotion: q.combined_emotion,
       facial_details: q.fer?.facial_details || null,
       audio_details: q.ser?.audio_details || null,
@@ -108,7 +118,6 @@ export default class EmotionAnalysisService {
     const emotionalSpikes = mlResult.spikes || [];
 
     // Generate emotional event report
-    const questionTexts = questions.map((q) => (typeof q === "object" ? q?.text : q) || "");
     const emotionalEventReport = generateEmotionalEventReport(mlResult, questionTexts, 0);
 
     // Create session record

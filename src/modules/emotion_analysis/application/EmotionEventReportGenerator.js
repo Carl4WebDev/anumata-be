@@ -42,6 +42,40 @@ function buildSpeechIndicators(ser) {
 }
 
 /**
+ * Build human-readable language indicator description.
+ * Uses LER (Language Emotion Recognition) results.
+ */
+function buildLanguageIndicators(ler, textAnalysis) {
+  if (!ler || !ler.probabilities) {
+    return "Language analysis data was not available for this segment.";
+  }
+
+  const emotion = ler.emotion;
+  const confidence = Math.round((ler.confidence || 0) * 100);
+
+  const indicators = [];
+  if (emotion === "Sad") {
+    indicators.push("language patterns suggest sadness or distress");
+  } else if (emotion === "Angry") {
+    indicators.push("language patterns suggest frustration or anger");
+  } else if (emotion === "Happy") {
+    indicators.push("language patterns suggest positive emotional state");
+  } else {
+    indicators.push("language patterns suggest neutral emotional state");
+  }
+
+  if (confidence > 0) {
+    indicators.push(`LER model confidence: ${confidence}%`);
+  }
+
+  if (textAnalysis?.keywords?.length > 0) {
+    indicators.push(`emotional keywords: ${textAnalysis.keywords.slice(0, 3).join(", ")}`);
+  }
+
+  return indicators.join(". ") + ".";
+}
+
+/**
  * Build human-readable facial indicator description.
  * Prefers real facial_details from ML service; falls back to probability-based text.
  */
@@ -90,7 +124,7 @@ function mapIntensityLevel(spike) {
  * Build summary sentence with hedging language.
  * Includes text_analysis keywords when available.
  */
-function buildSummary(question, dominantEmotion, ferEmotion, serEmotion, textAnalysis) {
+function buildSummary(question, dominantEmotion, ferEmotion, serEmotion, lerEmotion, textAnalysis) {
   const emotionWord = {
     Sad: "sadness",
     Angry: "anger",
@@ -103,12 +137,19 @@ function buildSummary(question, dominantEmotion, ferEmotion, serEmotion, textAna
     : "the question posed";
 
   let summary;
-  if (ferEmotion === dominantEmotion && serEmotion === dominantEmotion) {
-    summary = `The client's response regarding ${topic} was accompanied by ${emotionWord}, detected across both facial and speech modalities.`;
+  const allMatch = ferEmotion === dominantEmotion && serEmotion === dominantEmotion && lerEmotion === dominantEmotion;
+  const twoMatch = [ferEmotion, serEmotion, lerEmotion].filter((e) => e === dominantEmotion).length >= 2;
+
+  if (allMatch) {
+    summary = `The client's response regarding ${topic} was accompanied by ${emotionWord}, detected across facial, speech, and language modalities.`;
+  } else if (twoMatch) {
+    summary = `The client's response regarding ${topic} appeared associated with ${emotionWord}, detected across multiple modalities.`;
   } else if (ferEmotion === dominantEmotion) {
     summary = `The client's response regarding ${topic} appeared associated with ${emotionWord}, primarily detected through facial expression analysis.`;
   } else if (serEmotion === dominantEmotion) {
     summary = `The client's response regarding ${topic} may indicate ${emotionWord}, primarily detected through speech pattern analysis.`;
+  } else if (lerEmotion === dominantEmotion) {
+    summary = `The client's response regarding ${topic} may indicate ${emotionWord}, primarily detected through language pattern analysis.`;
   } else {
     summary = `The client's response regarding ${topic} was accompanied by indicators of ${emotionWord}.`;
   }
@@ -157,6 +198,7 @@ export function generateEmotionalEventReport(mlResult, questions, sessionDuratio
     const spike = spikes.find((s) => s.question_index === idx);
     const ferEmotion = pq.fer?.emotion || null;
     const serEmotion = pq.ser?.emotion || null;
+    const lerEmotion = pq.ler?.emotion || null;
     const dominantEmotion = pq.combined_emotion;
 
     // Confidence: use the modality that matches the combined emotion
@@ -182,8 +224,9 @@ export function generateEmotionalEventReport(mlResult, questions, sessionDuratio
       emotion_confidence: confidence,
       speech_indicators: buildSpeechIndicators(pq.ser),
       facial_indicators: buildFacialIndicators(pq.fer),
+      language_indicators: buildLanguageIndicators(pq.ler, pq.text_analysis),
       intensity_level: mapIntensityLevel(spike || {}),
-      summary: buildSummary(questionText, dominantEmotion, ferEmotion, serEmotion, pq.text_analysis),
+      summary: buildSummary(questionText, dominantEmotion, ferEmotion, serEmotion, lerEmotion, pq.text_analysis),
     });
   }
 
