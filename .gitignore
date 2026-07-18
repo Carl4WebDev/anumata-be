@@ -5,6 +5,5 @@ uploads/
 src\ai\models
 
 src/ai/models/fer_best_model.pth
-src/ai/models/haarcascade_frontalface_default.xml
 src/ai/models/ler_best_model.pt
 src/ai/models/ser_best_model.pt
