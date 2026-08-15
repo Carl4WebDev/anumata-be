@@ -71,23 +71,64 @@ def analyze_interview(
         q_start = time.time()
         logger.info("--- Q%d/%d ---", i + 1, len(questions))
 
-        # --- FER ---
+        # --- FER (multi-frame: run on all frames, pick best) ---
         fer_result = None
-        if i in frames:
-            try:
-                fer_start = time.time()
-                fer_result = fer_predict(frames[i])
-                fer_elapsed = time.time() - fer_start
-                logger.info(
-                    "FER completed in %.1fs\n"
-                    "  Emotion: %s\n"
-                    "  Confidence: %.1f%%",
-                    fer_elapsed,
-                    fer_result.get("emotion", "N/A"),
-                    fer_result.get("confidence", 0) * 100,
-                )
-            except Exception as e:
-                logger.error("FER failed for Q%d: %s", i, e, exc_info=True)
+        best_frame_index = 0
+        all_fer_results = []
+        if i in frames and frames[i]:
+            frame_list = frames[i]  # list of frame bytes for this question
+            fer_start = time.time()
+            logger.info("FER: processing %d frames for Q%d", len(frame_list), i)
+
+            for f_idx, frame_bytes in enumerate(frame_list):
+                try:
+                    single_result = fer_predict(frame_bytes)
+                    all_fer_results.append({
+                        "frame_index": f_idx,
+                        "emotion": single_result.get("emotion"),
+                        "confidence": single_result.get("confidence", 0),
+                        "probabilities": single_result.get("probabilities", {}),
+                    })
+                except Exception as e:
+                    logger.warning("FER failed for Q%d frame %d: %s", i, f_idx, e)
+                    all_fer_results.append({
+                        "frame_index": f_idx,
+                        "emotion": "Unknown",
+                        "confidence": 0,
+                        "probabilities": {},
+                    })
+
+            # Select best frame: prefer spike-relevant emotions (Sad, Angry) with highest confidence
+            spike_emotions = {"Sad", "Angry"}
+            best_idx = 0
+            best_score = -1
+            for f_idx, result in enumerate(all_fer_results):
+                emotion = result.get("emotion", "Unknown")
+                confidence = result.get("confidence", 0)
+                # Score: spike emotions get 2x priority, then by confidence
+                score = confidence * (2.0 if emotion in spike_emotions else 1.0)
+                if score > best_score:
+                    best_score = score
+                    best_idx = f_idx
+
+            best_frame_index = best_idx
+            best_fer = all_fer_results[best_idx]
+            fer_result = {
+                "emotion": best_fer["emotion"],
+                "confidence": best_fer["confidence"],
+                "probabilities": best_fer["probabilities"],
+                "processing_time": round(time.time() - fer_start, 4),
+            }
+            logger.info(
+                "FER completed (%d frames) in %.1fs\n"
+                "  Best frame: %d\n"
+                "  Emotion: %s\n"
+                "  Confidence: %.1f%%",
+                len(frame_list), time.time() - fer_start,
+                best_frame_index,
+                fer_result.get("emotion", "N/A"),
+                fer_result.get("confidence", 0) * 100,
+            )
         else:
             logger.warning("FER skipped for Q%d: no frame", i)
 
@@ -114,21 +155,23 @@ def analyze_interview(
         # --- Speech-to-Text (BEFORE LER) ---
         transcript_text = None
         if i in audios:
+            logger.info("[Q%d STT] Audio size: %d bytes, filename: %s",
+                        i, len(audios[i]), audio_filenames.get(i, "unknown"))
             try:
                 stt_start = time.time()
                 transcript_text = transcribe_audio(audios[i], audio_filenames.get(i, "audio.webm"))
                 stt_elapsed = time.time() - stt_start
                 logger.info(
-                    "STT completed in %.1fs\n"
-                    "  Text: %s",
-                    stt_elapsed,
-                    (transcript_text[:100] + "...") if len(transcript_text) > 100 else transcript_text,
+                    "[Q%d STT] Completed in %.1fs, text length: %d chars",
+                    i, stt_elapsed, len(transcript_text) if transcript_text else 0,
                 )
+                if transcript_text in ("[No speech detected]", "[Transcription failed]"):
+                    logger.warning("[Q%d STT] Result: %s", i, transcript_text)
             except Exception as e:
-                logger.error("STT failed for Q%d: %s", i, e, exc_info=True)
+                logger.error("[Q%d STT] Exception: %s: %s", i, type(e).__name__, e, exc_info=True)
                 transcript_text = "[Transcription failed]"
         else:
-            logger.warning("STT skipped for Q%d: no audio", i)
+            logger.warning("[Q%d STT] Skipped: no audio in audios dict", i)
 
         # --- LER (from transcript) ---
         ler_result = None
@@ -180,6 +223,8 @@ def analyze_interview(
             "confidence": fusion["confidence"],
             "agreement": fusion["agreement"],
             "transcript_text": transcript_text,
+            "best_frame_index": best_frame_index,
+            "all_fer_results": all_fer_results,
         }
         per_question.append(entry)
 
@@ -210,13 +255,13 @@ def analyze_interview(
     distribution = _compute_distribution(fusion_results)
     risk_level = compute_risk_level(distribution)
     indicators = compute_indicators(distribution)
-    spikes = detect_spikes(per_question)
+    spikes = detect_spikes(per_question, fusion_results)
 
     logger.info("Distribution: %s", distribution)
     logger.info("Risk Level: %s", risk_level)
     logger.info("Spikes: %d detected", len(spikes))
 
-    # --- Report generation (Qwen via Ollama) ---
+    # --- Report generation (LLM via Ollama) ---
     report = generate_report(
         transcript=transcript_entries,
         fusion_results=fusion_results,

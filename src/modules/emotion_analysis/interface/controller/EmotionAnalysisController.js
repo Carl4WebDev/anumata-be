@@ -1,3 +1,19 @@
+/**
+ * EMOTION ANALYSIS CONTROLLER
+ *
+ * Entry point for the emotion analysis HTTP endpoints.
+ *
+ * Routes:
+ *   POST /api/emotion/token/:token/analyze — Patient submits interview files
+ *   GET  /api/emotion/token/:token/results — Retrieve existing analysis results
+ *
+ * DATA FLOW:
+ *   Frontend (FormData with files) → multer → THIS CONTROLLER → EmotionAnalysisService → Python AI → PostgreSQL
+ *
+ * The analyze endpoint is PUBLIC (no auth) — patients submit via token.
+ * The results endpoint is also PUBLIC — used by the patient results page.
+ */
+
 import { sendSuccess } from "../../../../core/http/apiResponse.js";
 import { asyncHandler } from "../../../../core/middleware/asyncHandler.js";
 import EmotionAnalysisService from "../../application/EmotionAnalysisService.js";

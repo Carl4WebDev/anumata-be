@@ -143,7 +143,8 @@ async def analyze(files: list[UploadFile] = File(...), questions: str = Form("[]
         question_texts = []
 
     # Parse files by type and question index
-    frames = {}
+    # Supports: frame_N.jpg (single frame, backward compat) and frame_N_M.jpg (multi-frame)
+    frames = {}   # question_idx -> list of frame bytes
     audios = {}
     audio_filenames = {}
 
@@ -151,14 +152,17 @@ async def analyze(files: list[UploadFile] = File(...), questions: str = Form("[]
         name = f.filename
         content = await f.read()
 
-        match = re.match(r"(frame|audio)_(\d+)\.", name)
-        if not match:
-            continue
+        # Match frame_N_M.jpg (multi-frame) or frame_N.jpg (single-frame)
+        frame_match = re.match(r"frame_(\d+)(?:_(\d+))?\.", name)
+        audio_match = re.match(r"audio_(\d+)\.", name)
 
-        file_type, idx = match.group(1), int(match.group(2))
-        if file_type == "frame":
-            frames[idx] = content
-        elif file_type == "audio":
+        if frame_match:
+            q_idx = int(frame_match.group(1))
+            if q_idx not in frames:
+                frames[q_idx] = []
+            frames[q_idx].append(content)
+        elif audio_match:
+            idx = int(audio_match.group(1))
             audios[idx] = content
             audio_filenames[idx] = name
 
@@ -223,6 +227,162 @@ async def ler_predict_endpoint(req: TextRequest):
     except Exception as e:
         logger.error("LER prediction failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"LER prediction failed: {str(e)}")
+
+
+# =============================================================================
+# Report Regeneration
+# =============================================================================
+
+class RegenerateReportRequest(BaseModel):
+    transcript: list[dict]
+    fusion_results: list[dict]
+    overall_distribution: dict
+    risk_level: str
+    indicators: list[str]
+    spikes: list[dict]
+
+
+@app.post("/api/regenerate-report")
+async def regenerate_report(req: RegenerateReportRequest):
+    """Regenerate AI session report from existing analysis data."""
+    try:
+        from report.report_generator import generate_report
+        report = generate_report(
+            transcript=req.transcript,
+            fusion_results=req.fusion_results,
+            overall_distribution=req.overall_distribution,
+            risk_level=req.risk_level,
+            indicators=req.indicators,
+            spikes=req.spikes,
+        )
+        return report
+    except Exception as e:
+        logger.error("Report regeneration failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Report regeneration failed: {str(e)}")
+
+
+# =============================================================================
+# Longitudinal Report — Cross-session AI summary
+# =============================================================================
+
+class LongitudinalReportRequest(BaseModel):
+    sessions: list[dict]
+
+
+@app.post("/api/longitudinal-report")
+async def longitudinal_report(req: LongitudinalReportRequest):
+    """Generate a longitudinal AI summary across multiple completed sessions."""
+    try:
+        from report.report_generator import generate_longitudinal_report
+        report = generate_longitudinal_report(sessions_data=req.sessions)
+        return report
+    except Exception as e:
+        logger.error("Longitudinal report generation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Longitudinal report failed: {str(e)}")
+
+
+# =============================================================================
+# Question Set AI Assistant — draft generation, review, refinement
+# =============================================================================
+
+class GenerateQuestionsRequest(BaseModel):
+    title: str
+    focus: str
+    description: str = ""
+    num_questions: int = 5
+    language: str = "English"
+    additional_instructions: str = ""
+
+
+class ReviewQuestionsRequest(BaseModel):
+    questions: list[dict]
+    focus: str = ""
+
+
+class RefineQuestionRequest(BaseModel):
+    question_text: str
+
+
+@app.post("/api/question-sets/ai/generate")
+async def ai_generate_questions(req: GenerateQuestionsRequest):
+    """
+    Generate draft questions for a question set.
+
+    Flow: Frontend → Node.js API → THIS endpoint → Ollama → JSON → Frontend draft
+    The returned questions are DRAFTS — therapist must review and approve.
+    """
+    try:
+        from question_set.question_set_ai import generate_questions
+        result = generate_questions(
+            title=req.title,
+            focus=req.focus,
+            description=req.description,
+            num_questions=req.num_questions,
+            language=req.language,
+            additional_instructions=req.additional_instructions,
+        )
+        if result is None:
+            raise HTTPException(
+                status_code=503,
+                detail="AI question generation is currently unavailable. You may create the question set manually.",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Question generation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Question generation failed: {str(e)}")
+
+
+@app.post("/api/question-sets/ai/review")
+async def ai_review_questions(req: ReviewQuestionsRequest):
+    """
+    Review draft questions for quality issues.
+
+    Flow: Frontend → Node.js API → THIS endpoint → Ollama → issues JSON → Frontend
+    Returns quality issues and suggested revisions.
+    """
+    try:
+        from question_set.question_set_ai import review_questions
+        result = review_questions(
+            questions=req.questions,
+            focus=req.focus,
+        )
+        if result is None:
+            raise HTTPException(
+                status_code=503,
+                detail="AI question review is currently unavailable. Please review the questions manually.",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Question review failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Question review failed: {str(e)}")
+
+
+@app.post("/api/question-sets/ai/refine")
+async def ai_refine_question(req: RefineQuestionRequest):
+    """
+    Refine/improve a single question.
+
+    Flow: Frontend → Node.js API → THIS endpoint → Ollama → refinement JSON → Frontend
+    Returns original + revised question with explanation.
+    """
+    try:
+        from question_set.question_set_ai import refine_question
+        result = refine_question(question_text=req.question_text)
+        if result is None:
+            raise HTTPException(
+                status_code=503,
+                detail="AI question refinement is currently unavailable. Please edit the question manually.",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Question refinement failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Question refinement failed: {str(e)}")
 
 
 # =============================================================================

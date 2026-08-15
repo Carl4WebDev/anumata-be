@@ -70,3 +70,12 @@ export const deleteSession = asyncHandler(async (req, res) => {
     message: "Session removed",
   });
 });
+
+export const regenerateReport = asyncHandler(async (req, res) => {
+  const result = await sessionService.regenerateReport(req.user.id, req.params.id);
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: "Report regenerated",
+    data: result,
+  });
+});

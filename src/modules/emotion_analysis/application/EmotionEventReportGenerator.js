@@ -189,17 +189,25 @@ export function generateEmotionalEventReport(mlResult, questions, sessionDuratio
   for (const pq of perQuestion) {
     const idx = pq.question_index;
 
-    // Only create an event when a spike is detected AND emotion is Sad, Angry, or Happy
+    // Only create an event when a spike is detected
     if (!spikeIndices.has(idx)) continue;
-    if (!TARGET_EMOTIONS.includes(pq.combined_emotion)) continue;
+
+    const spike = spikes.find((s) => s.question_index === idx);
+    const isModalityAlert = spike?.type === "modality_alert";
+    const isDisagreement = spike?.type === "disagreement";
+
+    // For standard spikes, emotion must be Sad, Angry, or Happy.
+    // For modality_alert/disagreement spikes, always generate the event.
+    if (!isModalityAlert && !isDisagreement && !TARGET_EMOTIONS.includes(pq.combined_emotion)) continue;
 
     eventNumber++;
 
-    const spike = spikes.find((s) => s.question_index === idx);
     const ferEmotion = pq.fer?.emotion || null;
     const serEmotion = pq.ser?.emotion || null;
     const lerEmotion = pq.ler?.emotion || null;
-    const dominantEmotion = pq.combined_emotion;
+    // For modality_alert spikes, use the spike's emotion (the modality's detected emotion)
+    // For standard spikes, use the fused combined_emotion
+    const dominantEmotion = (isModalityAlert && spike?.emotion) ? spike.emotion : pq.combined_emotion;
 
     // Confidence: use the modality that matches the combined emotion
     let confidence = 0;
@@ -226,7 +234,11 @@ export function generateEmotionalEventReport(mlResult, questions, sessionDuratio
       facial_indicators: buildFacialIndicators(pq.fer),
       language_indicators: buildLanguageIndicators(pq.ler, pq.text_analysis),
       intensity_level: mapIntensityLevel(spike || {}),
-      summary: buildSummary(questionText, dominantEmotion, ferEmotion, serEmotion, lerEmotion, pq.text_analysis),
+      summary: isModalityAlert
+        ? `High-confidence ${dominantEmotion.toLowerCase()} was detected in ${spike?.label?.includes("SER") ? "speech" : spike?.label?.includes("FER") ? "facial" : "language"} analysis, while the overall fusion result differed. This discrepancy may warrant therapist review.`
+        : isDisagreement
+          ? `All three AI modalities detected different emotions for this response, indicating mixed emotional signals. Therapist interpretation is recommended.`
+          : buildSummary(questionText, dominantEmotion, ferEmotion, serEmotion, lerEmotion, pq.text_analysis),
     });
   }
 
@@ -251,9 +263,12 @@ export function generateEmotionalEventReport(mlResult, questions, sessionDuratio
     .map(([emotion]) => emotion)[0] || "Neutral";
 
   const spikeIndicesList = spikes
-    .filter((s) => TARGET_EMOTIONS.includes(
-      perQuestion.find((pq) => pq.question_index === s.question_index)?.combined_emotion || ""
-    ))
+    .filter((s) => {
+      if (s.type === "modality_alert" || s.type === "disagreement") return true;
+      return TARGET_EMOTIONS.includes(
+        perQuestion.find((pq) => pq.question_index === s.question_index)?.combined_emotion || ""
+      );
+    })
     .map((s) => s.question_index + 1);
   const questionsWithResponses = spikeIndicesList.map((qNum) => `Q${qNum}`);
 

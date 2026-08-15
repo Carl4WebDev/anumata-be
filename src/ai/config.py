@@ -5,6 +5,7 @@ All model paths, fusion weights, emotion labels, thresholds.
 Dataclasses for structured config to avoid hardcoded values.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,11 @@ CASCADE_PATH = MODELS_DIR / "haarcascade_frontalface_default.xml"
 
 # =============================================================================
 # EMOTION LABELS
+# =============================================================================
+# CRITICAL: This order MUST match training for ALL models (FER, SER, LER).
+# Index 0=Angry, 1=Happy, 2=Neutral, 3=Sad
+# If any training script used a different order, predictions are mislabeled.
+# Verify against SER factory's train script class_to_idx mapping.
 # =============================================================================
 
 EMOTIONS = ["angry", "happy", "neutral", "sad"]
@@ -153,14 +159,20 @@ WHISPER_LANGUAGE = STT_CONFIG.language
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass
 class OllamaConfig:
     base_url: str = "http://localhost:11434"
-    model: str = "qwen3:4b"
-    timeout: int = 120
+    model: str = "llama3.2:3b"
+    timeout: int = 180
+    num_predict: int = 1024
+    temperature: float = 0.3
 
 
-OLLAMA_CONFIG = OllamaConfig()
+OLLAMA_CONFIG = OllamaConfig(
+    base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+    model=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
+    timeout=int(os.environ.get("OLLAMA_TIMEOUT", "180")),
+)
 OLLAMA_BASE_URL = OLLAMA_CONFIG.base_url
 OLLAMA_MODEL = OLLAMA_CONFIG.model
 

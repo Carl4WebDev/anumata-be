@@ -1,8 +1,28 @@
 """
-Multimodal Fusion Engine.
+MULTIMODAL FUSION ENGINE
 
 Combines FER, SER, and LER outputs using confidence-adaptive weighted fusion.
 Each modality's influence = base_weight × prediction_confidence, then normalized.
+
+Algorithm:
+    1. Filter invalid results (NoFace, Unknown excluded)
+    2. effective_weight = base_weight × confidence
+    3. combined_scores[e] = Σ(prob[e] × effective_weight) / Σ(effective_weight)
+    4. Winner = max(combined_scores)
+    5. Disagreement penalty: winner_score *= (0.5 + 0.5 × agreeing_count / n_modalities)
+
+Base weights (from config.py):
+    SER = 0.40 (40%)
+    FER = 0.40 (40%)
+    LER = 0.20 (20%)
+
+This file also contains:
+    - compute_risk_level() — High/Moderate/Low based on Sad%+Angry%
+    - compute_indicators() — human-readable emotional pattern descriptions
+    - detect_spikes() — 6 rules for emotional spike detection
+
+Called by: ai/ai_service.py (after per-question FER/SER/LER)
+Calls: nothing (pure computation)
 """
 
 import logging
@@ -99,6 +119,26 @@ def fuse_emotions(
     # Agreement
     agreement = _compute_agreement(results)
 
+    # Agreement-aware confidence damping
+    # High individual confidence should NOT produce high fusion confidence when modalities disagree.
+    emotions_list = [r["emotion"] for r in results.values()]
+    unique_emotions = set(emotions_list)
+    n_modalities = len(results)
+
+    if len(unique_emotions) > 1 and n_modalities >= 2:
+        agreeing_count = sum(1 for e in emotions_list if e == winner)
+        agreement_ratio = agreeing_count / n_modalities
+        # penalty range: 0.5 (no agreement) to 1.0 (full agreement)
+        disagreement_penalty = 0.5 + 0.5 * agreement_ratio
+        original_score = winner_score
+        winner_score *= disagreement_penalty
+        logger.info(
+            "[FUSION] Disagreement penalty: %d/%d agree with %s, "
+            "penalty=%.3f, confidence: %.1f%% → %.1f%%",
+            agreeing_count, n_modalities, winner,
+            disagreement_penalty, original_score * 100, winner_score * 100,
+        )
+
     return {
         "emotion": winner,
         "confidence": round(winner_score, 4),
@@ -147,7 +187,7 @@ def compute_indicators(distribution: dict) -> list:
     return indicators
 
 
-def detect_spikes(per_question: list) -> list:
+def detect_spikes(per_question: list, per_question_results: list = None) -> list:
     """
     Detect emotional spikes across interview questions.
 
@@ -156,6 +196,8 @@ def detect_spikes(per_question: list) -> list:
     2. High-confidence negative: Sad/Angry with confidence >= 0.7
     3. Emotion flip: Sad ↔ Angry (confidence > 0.5)
     4. Intensification: Same negative emotion increasing by > 0.1 confidence
+    5. High-confidence negative modality signal (even if fused result differs)
+    6. Complete modality disagreement (all 3 modalities differ)
     """
     spikes = []
 
@@ -206,6 +248,36 @@ def detect_spikes(per_question: list) -> list:
                         "label": f"Intensifying {emotion.lower()} (confidence +{round((confidence - prev_confidence) * 100)}%)",
                         "emotion": emotion,
                         "intensity": min(int(confidence * 100), 95),
+                    })
+
+        # Rule 5: High-confidence negative modality signal
+        # When a modality detects Sad/Angry at >= 80% but fused result differs, flag it.
+        if per_question_results and i < len(per_question_results):
+            q_result = per_question_results[i]
+            model_results = q_result.get("model_results", {})
+            for modality_name, result in model_results.items():
+                mod_emotion = result.get("emotion", "")
+                mod_confidence = result.get("confidence", 0.0)
+                if mod_emotion in ("Sad", "Angry") and mod_confidence >= 0.80:
+                    if emotion not in ("Sad", "Angry"):
+                        spikes.append({
+                            "question_index": i,
+                            "label": f"High-confidence {mod_emotion.lower()} detected in {modality_name.upper()} ({mod_confidence:.0%})",
+                            "emotion": mod_emotion,
+                            "intensity": min(int(mod_confidence * 100), 95),
+                            "type": "modality_alert",
+                        })
+
+            # Rule 6: Complete modality disagreement (all 3 differ)
+            if len(model_results) >= 3:
+                emotions_set = set(r.get("emotion", "") for r in model_results.values())
+                if len(emotions_set) == 3:
+                    spikes.append({
+                        "question_index": i,
+                        "label": "Complete modality disagreement — all three modalities differ",
+                        "emotion": emotion,
+                        "intensity": 50,
+                        "type": "disagreement",
                     })
 
     return spikes

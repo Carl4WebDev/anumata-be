@@ -6,6 +6,7 @@ import {
   getPatientSessions,
   updateSessionNotes,
   deleteSession,
+  regenerateReport,
 } from "./controller/SessionController.js";
 
 import authMiddleware from "../../../core/middleware/Auth.js";
@@ -20,6 +21,7 @@ router.get("/", getSessions);
 router.get("/:id", getSession);
 router.get("/patient/:patientId", getPatientSessions);
 router.patch("/:id/notes", updateSessionNotes);
+router.post("/:id/regenerate-report", regenerateReport);
 router.delete("/:id", deleteSession);
 
 export default router;

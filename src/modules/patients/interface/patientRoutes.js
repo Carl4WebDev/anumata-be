@@ -5,6 +5,7 @@ import {
   getPatient,
   updatePatient,
   deletePatient,
+  generateLongitudinalReport,
 } from "./controller/PatientController.js";
 
 const router = express.Router();
@@ -19,5 +20,6 @@ router.get("/", getPatients);
 router.get("/:id", getPatient);
 router.patch("/:id", updatePatient);
 router.delete("/:id", deletePatient);
+router.post("/:id/longitudinal-report", generateLongitudinalReport);
 
 export default router;

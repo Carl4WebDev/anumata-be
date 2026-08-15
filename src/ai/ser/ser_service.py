@@ -51,8 +51,8 @@ class SERModel(nn.Module):
             nn.Linear(256, num_classes),
         )
 
-    def forward(self, input_values, attention_mask=None):
-        outputs = self.backbone(input_values=input_values, attention_mask=attention_mask)
+    def forward(self, input_values):
+        outputs = self.backbone(input_values=input_values)
         hidden_states = outputs.last_hidden_state
         pooled = hidden_states.mean(dim=1)
         logits = self.classifier(pooled)
@@ -123,13 +123,19 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
     model = _get_model()
     processor = _get_processor()
 
+    logger.info("[SER] Audio filename: %s, size: %d bytes", filename, len(audio_bytes))
+
     wav_path = None
     try:
         wav_path = _convert_to_wav(audio_bytes, filename)
+        logger.info("[SER] WAV conversion successful: %s", wav_path)
 
         # Check audio duration
         info = sf.info(wav_path)
+        logger.info("[SER] Audio duration: %.2fs, sample_rate: %d, channels: %d",
+                     info.duration, info.samplerate, info.channels)
         if info.duration < 1.0:
+            logger.warning("[SER] Audio too short (%.2fs < 1.0s), returning Neutral", info.duration)
             return _neutral_result("Audio too short", start)
 
         # Load audio
@@ -138,7 +144,9 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
 
         # Silence detection
         rms = np.sqrt(np.mean(y ** 2))
+        logger.info("[SER] RMS level: %.6f (threshold: %.4f)", rms, SILENCE_RMS_THRESHOLD)
         if rms < SILENCE_RMS_THRESHOLD:
+            logger.warning("[SER] Silence detected (RMS %.6f < %.4f), returning Neutral", rms, SILENCE_RMS_THRESHOLD)
             return _neutral_result("Silence detected", start)
 
         # Process with Wav2Vec2
@@ -147,10 +155,21 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
             padding=True, truncation=True, max_length=int(SER_SAMPLE_RATE * SER_MAX_DURATION)
         )
 
-        # Inference
+        logger.info(
+            "[SER] Input shape: %s, sample_rate: %d",
+            tuple(inputs.input_values.shape), SER_SAMPLE_RATE,
+        )
+
+        # Inference — match training code: model.forward() only takes input_values
         with torch.no_grad():
-            outputs = model(inputs.input_values, attention_mask=inputs.attention_mask)
-            probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()
+            logits = model(inputs.input_values)
+            probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
+
+        # Log raw model output
+        logger.info("[SER] Class order: %s", EMOTIONS_TITLE)
+        logger.info("[SER] Raw logits: %s", [round(float(v), 4) for v in logits[0].cpu().numpy()])
+        logger.info("[SER] Raw probabilities: %s",
+                     {EMOTIONS_TITLE[i]: f"{float(probs[i]):.2%}" for i in range(len(EMOTIONS_TITLE))})
 
         # Confidence guard
         sorted_indices = np.argsort(probs)[::-1]
@@ -160,20 +179,33 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
         second_prob = float(probs[second_idx])
         margin = top_prob - second_prob
 
+        confidence_guard_triggered = False
         if top_prob < SER_CONFIDENCE_THRESHOLD and margin < SER_MARGIN_THRESHOLD:
+            confidence_guard_triggered = True
             emotion = "Neutral"
             confidence = float(probs[EMOTIONS.index("neutral")]) if "neutral" in EMOTIONS else 0.5
+            logger.info("[SER] Confidence guard TRIGGERED: top_prob=%.2f%% < %.0f%% AND margin=%.2f%% < %.0f%% → override to Neutral",
+                         top_prob * 100, SER_CONFIDENCE_THRESHOLD * 100,
+                         margin * 100, SER_MARGIN_THRESHOLD * 100)
         else:
             emotion = EMOTIONS_TITLE[top_idx]
             confidence = top_prob
+            logger.info("[SER] Confidence guard NOT triggered: top_prob=%.2f%%, margin=%.2f%%",
+                         top_prob * 100, margin * 100)
 
         probabilities = {EMOTIONS_TITLE[i]: float(probs[i]) for i in range(len(EMOTIONS_TITLE))}
+
+        elapsed = round(time.time() - start, 4)
+        logger.info(
+            "[SER] RESULT: emotion=%s, confidence=%.2f%%, time=%.2fs",
+            emotion, confidence * 100, elapsed,
+        )
 
         return {
             "emotion": emotion,
             "confidence": round(confidence, 4),
             "probabilities": probabilities,
-            "processing_time": round(time.time() - start, 4),
+            "processing_time": elapsed,
         }
 
     finally:

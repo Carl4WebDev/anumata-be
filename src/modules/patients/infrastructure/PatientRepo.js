@@ -13,9 +13,19 @@ export default class PatientRepo extends IPatientRepo {
     return { ...result.rows[0], session_count: 0, risk_level: null, last_interview: null };
   }
 
+  async findDuplicate(therapistId, fullName, age, gender) {
+    const result = await db.query(
+      `SELECT patient_id, full_name FROM patients
+       WHERE therapist_id = $1 AND LOWER(TRIM(full_name)) = LOWER(TRIM($2)) AND age = $3 AND LOWER(gender) = LOWER($4)`,
+      [therapistId, fullName, age, gender],
+    );
+    return result.rows[0] || null;
+  }
+
   async findById(id) {
     const result = await db.query(
-      `SELECT p.patient_id, p.therapist_id, p.full_name, p.age, p.gender, p.primary_concern, p.created_at, p.updated_at,
+      `SELECT p.patient_id, p.therapist_id, p.full_name, p.age, p.gender, p.primary_concern,
+              p.created_at, p.updated_at, p.longitudinal_report,
               (SELECT COUNT(*) FROM sessions s WHERE s.patient_id = p.patient_id)::int as session_count,
               (SELECT s.risk_level FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as risk_level,
               (SELECT s.created_at FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as last_interview
@@ -108,6 +118,17 @@ export default class PatientRepo extends IPatientRepo {
     );
 
     return parseInt(result.rows[0].total);
+  }
+
+  async updateLongitudinalReport(patientId, report) {
+    const result = await db.query(
+      `UPDATE patients SET longitudinal_report = $2::jsonb, updated_at = NOW()
+       WHERE patient_id = $1
+       RETURNING patient_id, longitudinal_report, updated_at`,
+      [patientId, JSON.stringify(report)],
+    );
+
+    return result.rows[0];
   }
 
   async findRecent(therapistId, limit = 4) {

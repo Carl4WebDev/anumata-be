@@ -26,4 +26,8 @@ export default class IPatientRepo {
   async findRecent(therapistId, limit) {
     throw new Error("Not implemented");
   }
+
+  async updateLongitudinalReport(patientId, report) {
+    throw new Error("Not implemented");
+  }
 }

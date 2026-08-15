@@ -55,3 +55,12 @@ export const deletePatient = asyncHandler(async (req, res) => {
     message: "Patient removed",
   });
 });
+
+export const generateLongitudinalReport = asyncHandler(async (req, res) => {
+  const result = await patientService.generateLongitudinalReport(req.user.id, req.params.id);
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: "Longitudinal report generated",
+    data: result,
+  });
+});

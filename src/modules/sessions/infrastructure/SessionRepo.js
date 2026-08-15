@@ -1,12 +1,34 @@
+/**
+ * SESSION REPOSITORY
+ *
+ * Handles all database operations for the sessions table.
+ * This is the ONLY place where session data is read/written in PostgreSQL.
+ *
+ * PERSISTENCE FLOW:
+ *   EmotionAnalysisService → SessionRepo.create() → sessions table
+ *   SessionService → SessionRepo.findById() → sessions table → frontend
+ *
+ * IMPORTANT JSONB COLUMNS:
+ *   transcript         — per-question FER/SER/LER/fusion results (array of objects)
+ *   emotion_summary    — overall distribution + indicators
+ *   emotional_spikes   — detected emotional spikes
+ *   emotional_events   — structured event reports (from EmotionEventReportGenerator)
+ *   session_highlights — session-level event summary
+ *   report             — LLM-generated AI session summary (from Ollama)
+ *
+ * The report column was added in migration 20260801120000_add_report_column.js.
+ * If reports are "not available" in the frontend, verify this migration ran.
+ */
+
 import ISessionRepo from "../domain/ISessionRepo.js";
 import db from "../../../core/database/db.js";
 
 export default class SessionRepo extends ISessionRepo {
   async create(session) {
     const result = await db.query(
-      `INSERT INTO sessions (interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, emotional_events, session_highlights)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9::jsonb)
-       RETURNING session_id, interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, emotional_events, session_highlights, notes, created_at`,
+      `INSERT INTO sessions (interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, emotional_events, session_highlights, report)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb)
+       RETURNING session_id, interview_link_id, patient_id, therapist_id, transcript, emotion_summary, risk_level, emotional_spikes, emotional_events, session_highlights, report, notes, created_at`,
       [
         session.interview_link_id,
         session.patient_id,
@@ -17,6 +39,7 @@ export default class SessionRepo extends ISessionRepo {
         JSON.stringify(session.emotional_spikes || []),
         JSON.stringify(session.emotional_events || []),
         JSON.stringify(session.session_highlights || null),
+        JSON.stringify(session.report || null),
       ],
     );
 
@@ -117,8 +140,41 @@ export default class SessionRepo extends ISessionRepo {
     return result.rows[0];
   }
 
+  async updateReport(id, report) {
+    const result = await db.query(
+      `UPDATE sessions SET report = $2::jsonb, updated_at = NOW()
+       WHERE session_id = $1
+       RETURNING session_id, report, updated_at`,
+      [id, JSON.stringify(report)],
+    );
+
+    return result.rows[0];
+  }
+
   async remove(id) {
     await db.query(`DELETE FROM sessions WHERE session_id = $1`, [id]);
     return { deleted: true };
+  }
+
+  /**
+   * Fetch completed sessions with report data for longitudinal aggregation.
+   * Returns sessions ordered chronologically (oldest first) for trend analysis.
+   * Authorization: filters by therapist_id.
+   */
+  async findCompletedWithReportsByPatientId(patientId, therapistId) {
+    const result = await db.query(
+      `SELECT s.session_id, s.created_at, s.emotion_summary, s.risk_level,
+              s.emotional_spikes, s.emotional_events, s.session_highlights,
+              s.report, s.transcript,
+              qs.name as template_name
+       FROM sessions s
+       JOIN interview_links il ON il.interview_link_id = s.interview_link_id
+       JOIN question_sets qs ON qs.question_set_id = il.question_set_id
+       WHERE s.patient_id = $1 AND s.therapist_id = $2
+       ORDER BY s.created_at ASC`,
+      [patientId, therapistId],
+    );
+
+    return result.rows;
   }
 }
