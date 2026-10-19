@@ -25,13 +25,42 @@ export default class InterviewLinkService {
 
     const token = crypto.randomUUID();
 
-    return this.interviewLinkRepo.create({
-      therapist_id: therapistId,
-      patient_id: validated.patient_id,
-      question_set_id: validated.question_set_id,
-      token,
-      status: "pending",
-    });
+    // Try to get items from question_set_items (new system)
+    let snapshots = [];
+    if (this.questionSetRepo.findItemsBySetId) {
+      const items = await this.questionSetRepo.findItemsBySetId(validated.question_set_id);
+      if (items.length > 0) {
+        snapshots = items.map((item) => ({
+          question_text: item.question_text_snapshot,
+          source_type: item.source_type,
+          source_id: item.standardized_question_id || item.custom_question_id,
+          display_order: item.display_order,
+          snapshot_version: item.sq_version || null,
+        }));
+      }
+    }
+
+    // Fallback: snapshot from JSONB questions (existing sets)
+    if (snapshots.length === 0 && qs.questions && qs.questions.length > 0) {
+      snapshots = qs.questions.map((q, i) => ({
+        question_text: typeof q === "string" ? q : q.text,
+        source_type: "legacy",
+        source_id: null,
+        display_order: i + 1,
+        snapshot_version: null,
+      }));
+    }
+
+    return this.interviewLinkRepo.createWithSnapshot(
+      {
+        therapist_id: therapistId,
+        patient_id: validated.patient_id,
+        question_set_id: validated.question_set_id,
+        token,
+        status: "pending",
+      },
+      snapshots,
+    );
   }
 
   async getByToken(token) {

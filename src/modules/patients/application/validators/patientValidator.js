@@ -1,59 +1,94 @@
-import ValidationError from "../../../../core/errors/ValidationError.js";
-
-export function validateCreatePatient({ full_name, age, gender, primary_concern }) {
+/**
+ * Validate patient creation input.
+ */
+export function validateCreatePatient({ f_name, m_name, l_name, age, gender, primary_concern }) {
   const errors = {};
 
-  if (!full_name?.trim()) {
-    errors.full_name = "Patient name is required";
-  } else if (full_name.trim().length > 150) {
-    errors.full_name = "Name must not exceed 150 characters";
+  if (!f_name?.trim()) {
+    errors.f_name = "First name is required";
+  } else if (f_name.trim().length > 75) {
+    errors.f_name = "First name must not exceed 75 characters";
+  }
+
+  if (!l_name?.trim()) {
+    errors.l_name = "Last name is required";
+  } else if (l_name.trim().length > 75) {
+    errors.l_name = "Last name must not exceed 75 characters";
+  }
+
+  if (m_name && m_name.trim().length > 75) {
+    errors.m_name = "Middle name must not exceed 75 characters";
   }
 
   if (age === undefined || age === null || age === "") {
     errors.age = "Age is required";
-  } else if (isNaN(age) || Number(age) < 10 || Number(age) > 120) {
-    errors.age = "Age must be between 10 and 120";
+  } else if (!Number.isInteger(Number(age)) || Number(age) < 0 || Number(age) > 150) {
+    errors.age = "Age must be a valid number between 0 and 150";
   }
 
   if (!gender?.trim()) {
     errors.gender = "Gender is required";
-  } else if (!["male", "female", "other"].includes(gender.toLowerCase())) {
-    errors.gender = "Gender must be male, female, or other";
+  } else if (!["male", "female"].includes(gender.trim().toLowerCase())) {
+    errors.gender = "Gender must be male or female";
   }
 
   if (!primary_concern?.trim()) {
     errors.primary_concern = "Primary concern is required";
+  } else if (primary_concern.trim().length > 255) {
+    errors.primary_concern = "Primary concern must not exceed 255 characters";
   }
 
   if (Object.keys(errors).length > 0) {
-    throw new ValidationError("Validation failed", errors);
+    return { ok: false, errors };
   }
 
   return {
-    full_name: full_name.trim(),
-    age: Number(age),
-    gender: gender.toLowerCase(),
-    primary_concern: primary_concern.trim(),
+    ok: true,
+    data: {
+      f_name: f_name.trim().toUpperCase(),
+      m_name: m_name?.trim()?.toUpperCase() || null,
+      l_name: l_name.trim().toUpperCase(),
+      age: Number(age),
+      gender: gender.trim().toLowerCase(),
+      primary_concern: primary_concern.trim(),
+    },
   };
 }
 
-export function validateUpdatePatient({ full_name, age, gender, primary_concern }) {
+/**
+ * Validate patient update input.
+ */
+export function validateUpdatePatient({ f_name, m_name, l_name, age, gender, primary_concern }) {
   const errors = {};
   const data = {};
 
-  if (full_name !== undefined) {
-    if (!full_name?.trim()) {
-      errors.full_name = "Patient name cannot be empty";
-    } else if (full_name.trim().length > 150) {
-      errors.full_name = "Name must not exceed 150 characters";
+  if (f_name !== undefined) {
+    if (!f_name?.trim()) {
+      errors.f_name = "First name cannot be empty";
+    } else if (f_name.trim().length > 75) {
+      errors.f_name = "First name must not exceed 75 characters";
     } else {
-      data.full_name = full_name.trim();
+      data.f_name = f_name.trim().toUpperCase();
     }
   }
 
+  if (l_name !== undefined) {
+    if (!l_name?.trim()) {
+      errors.l_name = "Last name cannot be empty";
+    } else if (l_name.trim().length > 75) {
+      errors.l_name = "Last name must not exceed 75 characters";
+    } else {
+      data.l_name = l_name.trim().toUpperCase();
+    }
+  }
+
+  if (m_name !== undefined) {
+    data.m_name = m_name?.trim()?.toUpperCase() || null;
+  }
+
   if (age !== undefined) {
-    if (isNaN(age) || Number(age) < 10 || Number(age) > 120) {
-      errors.age = "Age must be between 10 and 120";
+    if (!Number.isInteger(Number(age)) || Number(age) < 0 || Number(age) > 150) {
+      errors.age = "Age must be a valid number between 0 and 150";
     } else {
       data.age = Number(age);
     }
@@ -62,24 +97,26 @@ export function validateUpdatePatient({ full_name, age, gender, primary_concern 
   if (gender !== undefined) {
     if (!gender?.trim()) {
       errors.gender = "Gender cannot be empty";
-    } else if (!["male", "female", "other"].includes(gender.toLowerCase())) {
-      errors.gender = "Gender must be male, female, or other";
+    } else if (!["male", "female"].includes(gender.trim().toLowerCase())) {
+      errors.gender = "Gender must be male or female";
     } else {
-      data.gender = gender.toLowerCase();
+      data.gender = gender.trim().toLowerCase();
     }
   }
 
   if (primary_concern !== undefined) {
     if (!primary_concern?.trim()) {
       errors.primary_concern = "Primary concern cannot be empty";
+    } else if (primary_concern.trim().length > 255) {
+      errors.primary_concern = "Primary concern must not exceed 255 characters";
     } else {
       data.primary_concern = primary_concern.trim();
     }
   }
 
   if (Object.keys(errors).length > 0) {
-    throw new ValidationError("Validation failed", errors);
+    return { ok: false, errors };
   }
 
-  return data;
+  return { ok: true, data };
 }

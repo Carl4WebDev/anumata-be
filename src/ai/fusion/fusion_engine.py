@@ -12,9 +12,9 @@ Algorithm:
     5. Disagreement penalty: winner_score *= (0.5 + 0.5 × agreeing_count / n_modalities)
 
 Base weights (from config.py):
-    SER = 0.40 (40%)
-    FER = 0.40 (40%)
-    LER = 0.20 (20%)
+    SER = 0.50 (50%)
+    FER = 0.50 (50%)
+    LER = 0.0 (experimental, excluded from fusion)
 
 This file also contains:
     - compute_risk_level() — High/Moderate/Low based on Sad%+Angry%
@@ -57,19 +57,26 @@ def fuse_emotions(
             "confidence": float,
             "probabilities": dict,
             "agreement": float,
-            "model_results": {"fer": ..., "ser": ..., "ler": ...}
+            "model_results": {"fer": ..., "ser": ..., "ler": ... (LER experimental, excluded from fusion)}
         }
     """
     if config is None:
         config = DEFAULT_CONFIG
 
     results = {}
+    all_model_results = {}
     if fer_result and fer_result.get("emotion") not in ("NoFace", "Unknown"):
         results["fer"] = fer_result
+        all_model_results["fer"] = fer_result
     if ser_result and ser_result.get("emotion") not in ("Unknown",):
         results["ser"] = ser_result
+        all_model_results["ser"] = ser_result
+    # LER: always include in output but exclude from fusion when weight is 0
+    ler_in_fusion = config.ler_weight > 0
     if ler_result and ler_result.get("emotion") not in ("Unknown",):
-        results["ler"] = ler_result
+        all_model_results["ler"] = ler_result
+        if ler_in_fusion:
+            results["ler"] = ler_result
 
     # No valid results
     if not results:
@@ -84,7 +91,7 @@ def fuse_emotions(
             "confidence": r["confidence"],
             "probabilities": r["probabilities"],
             "agreement": 100.0,
-            "model_results": {k: v for k, v in results.items()},
+            "model_results": {k: v for k, v in all_model_results.items()},
         }
 
     # Multimodal fusion
@@ -144,7 +151,7 @@ def fuse_emotions(
         "confidence": round(winner_score, 4),
         "probabilities": {k: round(v, 4) for k, v in combined_scores.items()},
         "agreement": round(agreement, 2),
-        "model_results": {k: v for k, v in results.items()},
+        "model_results": {k: v for k, v in all_model_results.items()},
     }
 
 

@@ -115,7 +115,11 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
             "emotion": str,
             "confidence": float,
             "probabilities": dict,
-            "processing_time": float
+            "processing_time": float,
+            "audio_duration": float,
+            "rms_level": float,
+            "is_silence": bool,
+            "is_too_short": bool
         }
     """
     start = time.time()
@@ -136,7 +140,7 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
                      info.duration, info.samplerate, info.channels)
         if info.duration < 1.0:
             logger.warning("[SER] Audio too short (%.2fs < 1.0s), returning Neutral", info.duration)
-            return _neutral_result("Audio too short", start)
+            return _neutral_result("Audio too short", start, info=info)
 
         # Load audio
         y, sr = librosa.load(wav_path, sr=SER_SAMPLE_RATE, duration=SER_MAX_DURATION,
@@ -147,7 +151,7 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
         logger.info("[SER] RMS level: %.6f (threshold: %.4f)", rms, SILENCE_RMS_THRESHOLD)
         if rms < SILENCE_RMS_THRESHOLD:
             logger.warning("[SER] Silence detected (RMS %.6f < %.4f), returning Neutral", rms, SILENCE_RMS_THRESHOLD)
-            return _neutral_result("Silence detected", start)
+            return _neutral_result("Silence detected", start, info=info, rms=rms)
 
         # Process with Wav2Vec2
         inputs = processor(
@@ -206,6 +210,10 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
             "confidence": round(confidence, 4),
             "probabilities": probabilities,
             "processing_time": elapsed,
+            "audio_duration": round(info.duration, 2),
+            "rms_level": round(float(rms), 6),
+            "is_silence": False,
+            "is_too_short": False,
         }
 
     finally:
@@ -213,7 +221,7 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
             Path(wav_path).unlink(missing_ok=True)
 
 
-def _neutral_result(reason: str, start: float) -> dict:
+def _neutral_result(reason: str, start: float, info=None, rms=None) -> dict:
     logger.info("SER neutral override: %s", reason)
     probs = {e: 0.0 for e in EMOTIONS_TITLE}
     probs["Neutral"] = 1.0
@@ -222,4 +230,8 @@ def _neutral_result(reason: str, start: float) -> dict:
         "confidence": 1.0,
         "probabilities": probs,
         "processing_time": round(time.time() - start, 4),
+        "audio_duration": round(info.duration, 2) if info else 0,
+        "rms_level": round(float(rms), 6) if rms is not None else 0,
+        "is_silence": reason == "Silence detected",
+        "is_too_short": reason == "Audio too short",
     }

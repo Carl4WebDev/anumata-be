@@ -42,9 +42,9 @@ ALL_EMOTIONS = ["Angry", "Happy", "Neutral", "Sad"]
 @dataclass
 class FusionConfig:
     """Configurable fusion weights. Change without modifying fusion logic."""
-    ser_weight: float = 0.40
-    fer_weight: float = 0.40
-    ler_weight: float = 0.20
+    ser_weight: float = 0.50
+    fer_weight: float = 0.50
+    ler_weight: float = 0.0
 
 
 DEFAULT_FUSION_CONFIG = FusionConfig()

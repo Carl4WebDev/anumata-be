@@ -1,10 +1,14 @@
 import { sendSuccess } from "../../../../core/http/apiResponse.js";
 import { asyncHandler } from "../../../../core/middleware/asyncHandler.js";
 import QuestionSetRepo from "../../infrastructure/QuestionSetRepo.js";
+import StandardizedQuestionRepo from "../../../standardized_questions/infrastructure/StandardizedQuestionRepo.js";
+import CustomQuestionRepo from "../../../custom_questions/infrastructure/CustomQuestionRepo.js";
 import QuestionSetService from "../../application/QuestionSetService.js";
 
 const repo = new QuestionSetRepo();
-const service = new QuestionSetService(repo);
+const sqRepo = new StandardizedQuestionRepo();
+const cqRepo = new CustomQuestionRepo();
+const service = new QuestionSetService(repo, sqRepo, cqRepo);
 
 export const createQuestionSet = asyncHandler(async (req, res) => {
   const result = await service.create(req.user.id, req.body);
@@ -47,5 +51,23 @@ export const deleteQuestionSet = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     statusCode: 200,
     message: "Question set removed",
+  });
+});
+
+export const createQuestionSetWithItems = asyncHandler(async (req, res) => {
+  const result = await service.createWithItems(req.user.id, req.body);
+  return sendSuccess(res, {
+    statusCode: 201,
+    message: "Question set created with items",
+    data: result,
+  });
+});
+
+export const getQuestionSetItems = asyncHandler(async (req, res) => {
+  const result = await service.getItems(req.user.id, Number(req.params.id));
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: "Question set items fetched",
+    data: result,
   });
 });

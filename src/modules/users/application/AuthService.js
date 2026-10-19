@@ -9,11 +9,13 @@ export default class AuthService {
     this.tokenService = tokenService;
   }
 
-  validateRegisterInput({ email, password, full_name }) {
+  validateRegisterInput({ email, password, f_name, m_name, l_name }) {
     const errors = {};
 
     const normalizedEmail = email?.trim().toLowerCase();
-    const normalizedName = full_name?.trim();
+    const normalizedFName = f_name?.trim().toUpperCase();
+    const normalizedLName = l_name?.trim().toUpperCase();
+    const normalizedMName = m_name?.trim()?.toUpperCase() || null;
 
     if (!normalizedEmail) {
       errors.email = "Email is required";
@@ -27,10 +29,16 @@ export default class AuthService {
       errors.password = "Password must be at least 8 characters";
     }
 
-    if (!normalizedName) {
-      errors.full_name = "Full name is required";
-    } else if (normalizedName.length > 100) {
-      errors.full_name = "Full name must not exceed 100 characters";
+    if (!normalizedFName) {
+      errors.f_name = "First name is required";
+    } else if (normalizedFName.length > 50) {
+      errors.f_name = "First name must not exceed 50 characters";
+    }
+
+    if (!normalizedLName) {
+      errors.l_name = "Last name is required";
+    } else if (normalizedLName.length > 50) {
+      errors.l_name = "Last name must not exceed 50 characters";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -40,12 +48,14 @@ export default class AuthService {
     return {
       email: normalizedEmail,
       password,
-      full_name: normalizedName,
+      f_name: normalizedFName,
+      m_name: normalizedMName,
+      l_name: normalizedLName,
     };
   }
 
   async register(data) {
-    const { email, password, full_name } = this.validateRegisterInput(data);
+    const { email, password, f_name, m_name, l_name } = this.validateRegisterInput(data);
 
     const existingUser = await this.userRepository.findByEmail(email);
 
@@ -58,7 +68,9 @@ export default class AuthService {
     const user = await this.userRepository.create({
       email,
       password_hash,
-      full_name,
+      f_name,
+      m_name,
+      l_name,
     });
 
     return user;
@@ -123,7 +135,9 @@ export default class AuthService {
       user: {
         user_id: user.user_id,
         email: user.email,
-        full_name: user.full_name,
+        f_name: user.f_name,
+        m_name: user.m_name,
+        l_name: user.l_name,
       },
     };
   }
@@ -138,25 +152,34 @@ export default class AuthService {
     return user;
   }
 
-  async updateProfile(userId, fullName) {
+  async updateProfile(userId, { f_name, m_name, l_name }) {
     const errors = {};
 
-    const normalizedName = fullName?.trim();
+    const normalizedFName = f_name?.trim().toUpperCase();
+    const normalizedLName = l_name?.trim().toUpperCase();
+    const normalizedMName = m_name?.trim()?.toUpperCase() || null;
 
-    if (!normalizedName) {
-      errors.full_name = "Full name is required";
-    } else if (normalizedName.length > 100) {
-      errors.full_name = "Full name must not exceed 100 characters";
+    if (!normalizedFName) {
+      errors.f_name = "First name is required";
+    } else if (normalizedFName.length > 50) {
+      errors.f_name = "First name must not exceed 50 characters";
+    }
+
+    if (!normalizedLName) {
+      errors.l_name = "Last name is required";
+    } else if (normalizedLName.length > 50) {
+      errors.l_name = "Last name must not exceed 50 characters";
     }
 
     if (Object.keys(errors).length > 0) {
       throw new ValidationError("Validation failed", errors);
     }
 
-    const updated = await this.userRepository.updateFullName(
-      userId,
-      normalizedName,
-    );
+    const updated = await this.userRepository.updateName(userId, {
+      f_name: normalizedFName,
+      m_name: normalizedMName,
+      l_name: normalizedLName,
+    });
 
     if (!updated) {
       throw new AppError("User not found", 404, "USER_NOT_FOUND");

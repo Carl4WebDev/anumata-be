@@ -4,11 +4,12 @@ import User from "../domain/Users/User.js";
 
 export default class UserRepo extends IUserRepo {
   async create(user) {
+    const fullName = `${user.f_name} ${user.m_name ? user.m_name + " " : ""}${user.l_name}`.trim();
     const result = await db.query(
-      `INSERT INTO users (email, password_hash, full_name)
-       VALUES ($1, $2, $3)
-       RETURNING user_id, email, full_name`,
-      [user.email, user.password_hash, user.full_name],
+      `INSERT INTO users (email, password_hash, f_name, m_name, l_name, full_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING user_id, email, f_name, m_name, l_name`,
+      [user.email, user.password_hash, user.f_name, user.m_name || null, user.l_name, fullName],
     );
 
     return result.rows[0];
@@ -26,7 +27,7 @@ export default class UserRepo extends IUserRepo {
 
   async findById(id) {
     const result = await db.query(
-      `SELECT user_id, email, full_name, created_at FROM users WHERE user_id = $1`,
+      `SELECT user_id, email, f_name, m_name, l_name, created_at FROM users WHERE user_id = $1`,
       [id],
     );
 
@@ -35,10 +36,11 @@ export default class UserRepo extends IUserRepo {
     return result.rows[0];
   }
 
-  async updateFullName(id, fullName) {
+  async updateName(id, { f_name, m_name, l_name }) {
+    const fullName = `${f_name} ${m_name ? m_name + " " : ""}${l_name}`.trim();
     const result = await db.query(
-      `UPDATE users SET full_name = $2, updated_at = NOW() WHERE user_id = $1 RETURNING user_id, email, full_name`,
-      [id, fullName],
+      `UPDATE users SET f_name = $2, m_name = $3, l_name = $4, full_name = $5, updated_at = NOW() WHERE user_id = $1 RETURNING user_id, email, f_name, m_name, l_name`,
+      [id, f_name, m_name || null, l_name, fullName],
     );
 
     return result.rows[0];

@@ -168,6 +168,10 @@ export default class EmotionAnalysisService {
         facial_details: q.fer?.facial_details || null,
         audio_details: q.ser?.audio_details || null,
         text_analysis: q.text_analysis || null,
+        audio_duration: q.audio_duration || 0,
+        rms_level: q.rms_level || 0,
+        is_silence: q.is_silence || false,
+        language_detected_confidence: q.language_probability || null,
         frame_image: questionFrames[bestIdx] || questionFrames[0] || null,
         evidence_frames: evidenceFrames.length > 0 ? evidenceFrames : null,
       };

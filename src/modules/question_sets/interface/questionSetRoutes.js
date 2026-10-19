@@ -5,6 +5,8 @@ import {
   getQuestionSet,
   updateQuestionSet,
   deleteQuestionSet,
+  createQuestionSetWithItems,
+  getQuestionSetItems,
 } from "./controller/QuestionSetController.js";
 import {
   aiGenerateQuestions,
@@ -27,8 +29,10 @@ router.post("/ai/refine", aiRefineQuestion);
 
 // Standard CRUD
 router.post("/", createQuestionSet);
+router.post("/with-items", createQuestionSetWithItems);
 router.get("/", getQuestionSets);
 router.get("/:id", getQuestionSet);
+router.get("/:id/items", getQuestionSetItems);
 router.patch("/:id", updateQuestionSet);
 router.delete("/:id", deleteQuestionSet);
 

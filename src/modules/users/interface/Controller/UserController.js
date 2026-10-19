@@ -52,10 +52,11 @@ export const getProfile = asyncHandler(async (req, res) => {
 });
 
 export const updateProfile = asyncHandler(async (req, res) => {
-  const result = await authService.updateProfile(
-    req.user.id,
-    req.body.full_name,
-  );
+  const result = await authService.updateProfile(req.user.id, {
+    f_name: req.body.f_name,
+    m_name: req.body.m_name,
+    l_name: req.body.l_name,
+  });
 
   return sendSuccess(res, {
     statusCode: 200,

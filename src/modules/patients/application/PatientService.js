@@ -11,11 +11,16 @@ export default class PatientService {
   }
 
   async create(therapistId, data) {
-    const validated = validateCreatePatient(data);
+    const result = validateCreatePatient(data);
+    if (!result.ok) {
+      throw new AppError("Validation failed", 400, "VALIDATION_ERROR");
+    }
+    const validated = result.data;
 
     const duplicate = await this.patientRepository.findDuplicate(
       therapistId,
-      validated.full_name,
+      validated.f_name,
+      validated.l_name,
       validated.age,
       validated.gender,
     );
@@ -55,9 +60,13 @@ export default class PatientService {
   }
 
   async update(therapistId, patientId, data) {
-    const validated = validateUpdatePatient(data);
+    const result = validateUpdatePatient(data);
 
-    if (Object.keys(validated).length === 0) {
+    if (!result.ok) {
+      throw new AppError("Validation failed", 400, "VALIDATION_ERROR");
+    }
+
+    if (Object.keys(result.data).length === 0) {
       throw new AppError("No fields to update", 400, "NO_FIELDS");
     }
 
@@ -71,7 +80,7 @@ export default class PatientService {
       throw new AppError("Access denied", 403, "FORBIDDEN");
     }
 
-    return this.patientRepository.update(patientId, validated);
+    return this.patientRepository.update(patientId, result.data);
   }
 
   async remove(therapistId, patientId) {

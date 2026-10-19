@@ -13,6 +13,8 @@ import interviewLinkRoutes from "./modules/interview_links/interface/interviewLi
 import sessionRoutes from "./modules/sessions/interface/sessionRoutes.js";
 import emotionAnalysisRoutes from "./modules/emotion_analysis/interface/emotionAnalysisRoutes.js";
 import dashboardRoutes from "./modules/dashboard/interface/dashboardRoutes.js";
+import standardizedQuestionRoutes from "./modules/standardized_questions/interface/standardizedQuestionRoutes.js";
+import customQuestionRoutes from "./modules/custom_questions/interface/customQuestionRoutes.js";
 
 import errorHandler from "./core/middleware/errorHandler.js";
 import notFoundHandler from "./core/middleware/notFoundHandler.js";
@@ -69,6 +71,8 @@ app.use("/api/emotion", emotionAnalysisRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/question-sets", questionSetRoutes);
+app.use("/api/standardized-questions", standardizedQuestionRoutes);
+app.use("/api/custom-questions", customQuestionRoutes);
 app.use("/api/sessions", sessionRoutes);
 
 // Error handling

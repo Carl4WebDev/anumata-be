@@ -49,7 +49,7 @@ export default class SessionRepo extends ISessionRepo {
   async findById(id) {
     const result = await db.query(
       `SELECT s.*,
-              p.full_name as patient_name, p.age as patient_age, p.gender as patient_gender, p.primary_concern,
+              CONCAT(p.f_name, ' ', COALESCE(p.m_name || ' ', ''), p.l_name) as patient_name, p.age as patient_age, p.gender as patient_gender, p.primary_concern,
               qs.name as template_name
        FROM sessions s
        JOIN patients p ON p.patient_id = s.patient_id
@@ -71,7 +71,7 @@ export default class SessionRepo extends ISessionRepo {
     const result = await db.query(
       `SELECT s.session_id, s.emotion_summary, s.risk_level, s.emotional_spikes, s.transcript, s.notes, s.created_at,
               s.emotional_events, s.session_highlights,
-              p.full_name as patient_name,
+              CONCAT(p.f_name, ' ', COALESCE(p.m_name || ' ', ''), p.l_name) as patient_name,
               qs.name as template_name
        FROM sessions s
        JOIN patients p ON p.patient_id = s.patient_id
@@ -100,7 +100,7 @@ export default class SessionRepo extends ISessionRepo {
     const result = await db.query(
       `SELECT s.session_id, s.emotion_summary, s.risk_level, s.emotional_spikes, s.transcript, s.notes, s.created_at,
               s.emotional_events, s.session_highlights,
-              p.patient_id, p.full_name as patient_name,
+              p.patient_id, CONCAT(p.f_name, ' ', COALESCE(p.m_name || ' ', ''), p.l_name) as patient_name,
               qs.name as template_name
        FROM sessions s
        JOIN patients p ON p.patient_id = s.patient_id

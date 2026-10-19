@@ -45,7 +45,7 @@ Your output MUST be valid JSON with these exact fields:
 - "suggested_follow_ups": List of 2-4 concrete, open-ended questions the therapist can ask the client in a subsequent session. These MUST be directly related to the client's actual responses and detected emotional changes. Do NOT use generic questions like "How are you feeling today?" unless genuinely appropriate for the session context.
 - "topics_discussed": List of main topics extracted from the transcript.
 - "keywords": List of significant emotional keywords found.
-- "evidence_quality": An object with keys "fer", "ser", "ler" (each "available" or "unavailable") and "overall" ("strong", "moderate", or "limited").
+- "evidence_quality": An object with keys "fer", "ser", "ler" (each "available" or "unavailable") and "overall" ("strong", "moderate", or "limited"). Note: LER is experimental and excluded from fusion — do not present it as validated evidence.
 - "limitations": List of 1-3 limitations or caveats about the analysis (e.g., missing modalities, low confidence, language detection issues).
 
 Output ONLY the JSON object. No markdown fences, no explanatory text."""
@@ -225,7 +225,7 @@ def _build_context(
     ser_count = sum(1 for r in fusion_results if "ser" in r.get("model_results", {}))
     ler_count = sum(1 for r in fusion_results if "ler" in r.get("model_results", {}))
     total = len(fusion_results) or 1
-    lines.append(f"\nModality Coverage: FER {fer_count}/{total}, SER {ser_count}/{total}, LER {ler_count}/{total}")
+    lines.append(f"\nModality Coverage: FER {fer_count}/{total}, SER {ser_count}/{total}, LER {ler_count}/{total} (LER is experimental, excluded from fusion)")
 
     lines.append("\n=== TRANSCRIPT ===\n")
     for i, entry in enumerate(transcript):
@@ -355,16 +355,16 @@ def _fallback_report(
     if len(spikes or []) > 1:
         areas.append("Multiple emotional spikes detected — review transitions between questions")
 
-    # Evidence quality
+    # Evidence quality (LER excluded — experimental, not part of fusion)
     fer_available = any(t.get("fer_emotion") for t in (transcript or []))
     ser_available = any(t.get("ser_emotion") for t in (transcript or []))
     ler_available = any(t.get("ler_emotion") for t in (transcript or []))
-    available_count = sum([fer_available, ser_available, ler_available])
+    fusion_available_count = sum([fer_available, ser_available])
     evidence_quality = {
         "fer": "available" if fer_available else "unavailable",
         "ser": "available" if ser_available else "unavailable",
-        "ler": "available" if ler_available else "unavailable",
-        "overall": "strong" if available_count == 3 else ("moderate" if available_count == 2 else "limited"),
+        "ler": "available (experimental)" if ler_available else "unavailable",
+        "overall": "strong" if fusion_available_count == 2 else ("moderate" if fusion_available_count == 1 else "limited"),
     }
 
     return {
@@ -780,7 +780,8 @@ def _compute_longitudinal_analysis(sessions_data: List[Dict]) -> Dict:
     ler_available = modality_stats["ler"]
     total_for_modality = max(sessions_with_modality_data, 1)
 
-    modality_score = (fer_available + ser_available + ler_available) / (total_for_modality * 3) if total_for_modality > 0 else 0
+    # LER excluded from score — experimental, not part of fusion
+    modality_score = (fer_available + ser_available) / (total_for_modality * 2) if total_for_modality > 0 else 0
 
     if n < 2:
         overall_quality = "limited"
@@ -794,7 +795,7 @@ def _compute_longitudinal_analysis(sessions_data: List[Dict]) -> Dict:
     evidence_quality = {
         "fer": f"available in {fer_available}/{n} sessions" if n > 0 else "unavailable",
         "ser": f"available in {ser_available}/{n} sessions" if n > 0 else "unavailable",
-        "ler": f"available in {ler_available}/{n} sessions" if n > 0 else "unavailable",
+        "ler": f"available (experimental) in {ler_available}/{n} sessions" if n > 0 else "unavailable",
         "overall": overall_quality,
         "notes": f"Modality data available in {sessions_with_modality_data} of {n} sessions.",
     }

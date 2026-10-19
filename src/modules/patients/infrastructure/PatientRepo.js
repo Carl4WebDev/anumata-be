@@ -3,28 +3,29 @@ import db from "../../../core/database/db.js";
 
 export default class PatientRepo extends IPatientRepo {
   async create(patient) {
+    const fullName = `${patient.f_name} ${patient.m_name ? patient.m_name + " " : ""}${patient.l_name}`.trim();
     const result = await db.query(
-      `INSERT INTO patients (therapist_id, full_name, age, gender, primary_concern)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING patient_id, therapist_id, full_name, age, gender, primary_concern, created_at`,
-      [patient.therapist_id, patient.full_name, patient.age, patient.gender, patient.primary_concern],
+      `INSERT INTO patients (therapist_id, f_name, m_name, l_name, full_name, age, gender, primary_concern)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING patient_id, therapist_id, f_name, m_name, l_name, age, gender, primary_concern, created_at`,
+      [patient.therapist_id, patient.f_name, patient.m_name || null, patient.l_name, fullName, patient.age, patient.gender, patient.primary_concern],
     );
 
     return { ...result.rows[0], session_count: 0, risk_level: null, last_interview: null };
   }
 
-  async findDuplicate(therapistId, fullName, age, gender) {
+  async findDuplicate(therapistId, fName, lName, age, gender) {
     const result = await db.query(
-      `SELECT patient_id, full_name FROM patients
-       WHERE therapist_id = $1 AND LOWER(TRIM(full_name)) = LOWER(TRIM($2)) AND age = $3 AND LOWER(gender) = LOWER($4)`,
-      [therapistId, fullName, age, gender],
+      `SELECT patient_id, f_name, l_name FROM patients
+       WHERE therapist_id = $1 AND LOWER(TRIM(f_name)) = LOWER(TRIM($2)) AND LOWER(TRIM(l_name)) = LOWER(TRIM($3)) AND age = $4 AND LOWER(gender) = LOWER($5)`,
+      [therapistId, fName, lName, age, gender],
     );
     return result.rows[0] || null;
   }
 
   async findById(id) {
     const result = await db.query(
-      `SELECT p.patient_id, p.therapist_id, p.full_name, p.age, p.gender, p.primary_concern,
+      `SELECT p.patient_id, p.therapist_id, p.f_name, p.m_name, p.l_name, p.age, p.gender, p.primary_concern,
               p.created_at, p.updated_at, p.longitudinal_report,
               (SELECT COUNT(*) FROM sessions s WHERE s.patient_id = p.patient_id)::int as session_count,
               (SELECT s.risk_level FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as risk_level,
@@ -43,7 +44,8 @@ export default class PatientRepo extends IPatientRepo {
 
     if (search) {
       params.push(`%${search}%`);
-      whereClause += ` AND p.full_name ILIKE $${params.length}`;
+      const sp = params.length;
+      whereClause += ` AND (p.f_name ILIKE $${sp} OR p.l_name ILIKE $${sp})`;
     }
 
     params.push(limit);
@@ -55,12 +57,13 @@ export default class PatientRepo extends IPatientRepo {
     let countWhere = "WHERE therapist_id = $1";
     if (search) {
       countParams.push(`%${search}%`);
-      countWhere += ` AND full_name ILIKE $${countParams.length}`;
+      const csp = countParams.length;
+      countWhere += ` AND (f_name ILIKE $${csp} OR l_name ILIKE $${csp})`;
     }
 
     const [patients, countResult] = await Promise.all([
       db.query(
-        `SELECT p.patient_id, p.therapist_id, p.full_name, p.age, p.gender, p.primary_concern, p.created_at,
+        `SELECT p.patient_id, p.therapist_id, p.f_name, p.m_name, p.l_name, p.age, p.gender, p.primary_concern, p.created_at,
                 (SELECT COUNT(*) FROM sessions s WHERE s.patient_id = p.patient_id)::int as session_count,
                 (SELECT s.risk_level FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as risk_level,
                 (SELECT s.created_at FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as last_interview
@@ -99,7 +102,7 @@ export default class PatientRepo extends IPatientRepo {
 
     const result = await db.query(
       `UPDATE patients SET ${setClauses.join(", ")} WHERE patient_id = $1
-       RETURNING patient_id, therapist_id, full_name, age, gender, primary_concern, created_at, updated_at`,
+       RETURNING patient_id, therapist_id, f_name, m_name, l_name, age, gender, primary_concern, created_at, updated_at`,
       params,
     );
 
@@ -133,7 +136,8 @@ export default class PatientRepo extends IPatientRepo {
 
   async findRecent(therapistId, limit = 4) {
     const result = await db.query(
-      `SELECT p.patient_id as id, p.full_name as name,
+      `SELECT p.patient_id as id,
+              TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as name,
               (SELECT s.risk_level FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as risk,
               (SELECT s.created_at FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as last_interview
        FROM patients p

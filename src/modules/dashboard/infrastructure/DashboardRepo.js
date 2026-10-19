@@ -37,7 +37,7 @@ export default class DashboardRepo {
 
   async getRecentPatients(therapistId, limit = 4) {
     const result = await db.query(
-      `SELECT p.patient_id as id, p.full_name as name,
+      `SELECT p.patient_id as id, CONCAT(p.f_name, ' ', COALESCE(p.m_name || ' ', ''), p.l_name) as name,
               COALESCE(s.risk_level, 'N/A') as risk,
               p.primary_concern as status,
               s.created_at as last_interview

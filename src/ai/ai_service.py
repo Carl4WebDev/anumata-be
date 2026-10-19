@@ -154,13 +154,15 @@ def analyze_interview(
 
         # --- Speech-to-Text (BEFORE LER) ---
         transcript_text = None
+        stt_result = None
         if i in audios:
             logger.info("[Q%d STT] Audio size: %d bytes, filename: %s",
                         i, len(audios[i]), audio_filenames.get(i, "unknown"))
             try:
                 stt_start = time.time()
-                transcript_text = transcribe_audio(audios[i], audio_filenames.get(i, "audio.webm"))
+                stt_result = transcribe_audio(audios[i], audio_filenames.get(i, "audio.webm"))
                 stt_elapsed = time.time() - stt_start
+                transcript_text = stt_result.get("text", "[Transcription failed]")
                 logger.info(
                     "[Q%d STT] Completed in %.1fs, text length: %d chars",
                     i, stt_elapsed, len(transcript_text) if transcript_text else 0,
@@ -225,6 +227,12 @@ def analyze_interview(
             "transcript_text": transcript_text,
             "best_frame_index": best_frame_index,
             "all_fer_results": all_fer_results,
+            # Recording quality fields
+            "audio_duration": ser_result.get("audio_duration", 0) if ser_result else 0,
+            "rms_level": ser_result.get("rms_level", 0) if ser_result else 0,
+            "is_silence": ser_result.get("is_silence", False) if ser_result else False,
+            "language": stt_result.get("language") if isinstance(stt_result, dict) else None,
+            "language_probability": stt_result.get("language_probability") if isinstance(stt_result, dict) else None,
         }
         per_question.append(entry)
 

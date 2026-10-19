@@ -47,13 +47,13 @@ function buildSpeechIndicators(ser) {
  */
 function buildLanguageIndicators(ler, textAnalysis) {
   if (!ler || !ler.probabilities) {
-    return "Language analysis data was not available for this segment.";
+    return "[Experimental] Language analysis data was not available for this segment.";
   }
 
   const emotion = ler.emotion;
   const confidence = Math.round((ler.confidence || 0) * 100);
 
-  const indicators = [];
+  const indicators = ["[Experimental — not included in fusion]"];
   if (emotion === "Sad") {
     indicators.push("language patterns suggest sadness or distress");
   } else if (emotion === "Angry") {
@@ -137,19 +137,14 @@ function buildSummary(question, dominantEmotion, ferEmotion, serEmotion, lerEmot
     : "the question posed";
 
   let summary;
-  const allMatch = ferEmotion === dominantEmotion && serEmotion === dominantEmotion && lerEmotion === dominantEmotion;
-  const twoMatch = [ferEmotion, serEmotion, lerEmotion].filter((e) => e === dominantEmotion).length >= 2;
+  // LER excluded from fusion — only FER/SER determine the summary
+  const ferSerMatch = ferEmotion === dominantEmotion && serEmotion === dominantEmotion;
+  const ferSerOneMatch = ferEmotion === dominantEmotion || serEmotion === dominantEmotion;
 
-  if (allMatch) {
-    summary = `The client's response regarding ${topic} was accompanied by ${emotionWord}, detected across facial, speech, and language modalities.`;
-  } else if (twoMatch) {
-    summary = `The client's response regarding ${topic} appeared associated with ${emotionWord}, detected across multiple modalities.`;
-  } else if (ferEmotion === dominantEmotion) {
-    summary = `The client's response regarding ${topic} appeared associated with ${emotionWord}, primarily detected through facial expression analysis.`;
-  } else if (serEmotion === dominantEmotion) {
-    summary = `The client's response regarding ${topic} may indicate ${emotionWord}, primarily detected through speech pattern analysis.`;
-  } else if (lerEmotion === dominantEmotion) {
-    summary = `The client's response regarding ${topic} may indicate ${emotionWord}, primarily detected through language pattern analysis.`;
+  if (ferSerMatch) {
+    summary = `The client's response regarding ${topic} was accompanied by ${emotionWord}, detected across facial and speech modalities.`;
+  } else if (ferSerOneMatch) {
+    summary = `The client's response regarding ${topic} appeared associated with ${emotionWord}, detected through ${ferEmotion === dominantEmotion ? "facial expression" : "speech pattern"} analysis.`;
   } else {
     summary = `The client's response regarding ${topic} was accompanied by indicators of ${emotionWord}.`;
   }

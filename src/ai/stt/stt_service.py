@@ -116,11 +116,11 @@ def _preprocess_audio(wav_path: str) -> str:
     return tmp_out.name
 
 
-def transcribe_audio(audio_bytes: bytes, filename: str = "audio.webm") -> str:
+def transcribe_audio(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
     """
     Transcribe audio to text with preprocessing and auto-detection.
 
-    Returns transcribed text or "[No speech detected]" on failure.
+    Returns dict with transcription result and quality metadata.
     """
     model = _get_model()
     wav_path = None
@@ -172,13 +172,31 @@ def transcribe_audio(audio_bytes: bytes, filename: str = "audio.webm") -> str:
 
         if not text:
             logger.warning("[STT] No speech detected in %s", filename)
-            return "[No speech detected]"
+            return {
+                "text": "[No speech detected]",
+                "language": info.language,
+                "language_probability": round(info.language_probability, 4),
+                "duration": round(info.duration, 2),
+                "processing_time": round(elapsed, 2),
+            }
 
-        return text
+        return {
+            "text": text,
+            "language": info.language,
+            "language_probability": round(info.language_probability, 4),
+            "duration": round(info.duration, 2),
+            "processing_time": round(elapsed, 2),
+        }
 
     except Exception as e:
         logger.error("[STT] Transcription FAILED for %s: %s: %s", filename, type(e).__name__, e, exc_info=True)
-        return "[Transcription failed]"
+        return {
+            "text": "[Transcription failed]",
+            "language": None,
+            "language_probability": None,
+            "duration": 0,
+            "processing_time": 0,
+        }
 
     finally:
         if wav_path:
