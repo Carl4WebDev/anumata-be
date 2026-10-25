@@ -27,7 +27,7 @@ export default class UserRepo extends IUserRepo {
 
   async findById(id) {
     const result = await db.query(
-      `SELECT user_id, email, f_name, m_name, l_name, created_at FROM users WHERE user_id = $1`,
+      `SELECT user_id, email, f_name, m_name, l_name, profile_image, phone, specialization, license_number, affiliation, created_at FROM users WHERE user_id = $1`,
       [id],
     );
 
@@ -36,11 +36,13 @@ export default class UserRepo extends IUserRepo {
     return result.rows[0];
   }
 
-  async updateName(id, { f_name, m_name, l_name }) {
-    const fullName = `${f_name} ${m_name ? m_name + " " : ""}${l_name}`.trim();
+  async updateProfile(id, data) {
+    // Keys come from AuthService's fixed field list, never from request input.
+    const fields = Object.keys(data);
+    const sets = fields.map((key, i) => `${key} = $${i + 2}`);
     const result = await db.query(
-      `UPDATE users SET f_name = $2, m_name = $3, l_name = $4, full_name = $5, updated_at = NOW() WHERE user_id = $1 RETURNING user_id, email, f_name, m_name, l_name`,
-      [id, f_name, m_name || null, l_name, fullName],
+      `UPDATE users SET ${sets.join(", ")}, updated_at = NOW() WHERE user_id = $1 RETURNING user_id, email, f_name, m_name, l_name, profile_image, phone, specialization, license_number, affiliation`,
+      [id, ...fields.map((key) => data[key])],
     );
 
     return result.rows[0];

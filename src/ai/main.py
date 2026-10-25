@@ -187,6 +187,43 @@ async def analyze(files: list[UploadFile] = File(...), questions: str = Form("[]
 
 
 # =============================================================================
+# Standalone STT — lightweight transcription for rapport phase
+# =============================================================================
+
+@app.post("/api/stt/transcribe")
+async def stt_transcribe(file: UploadFile = File(...)):
+    """Transcribe audio without running FER/SER/LER/fusion. Used for rapport voice input."""
+    try:
+        content = await file.read()
+        from stt.stt_service import transcribe_audio
+        result = transcribe_audio(content, file.filename)
+        return result
+    except Exception as e:
+        logger.error("STT transcription failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
+
+# =============================================================================
+# Question Translation — interview questions spoken in the patient's language
+# =============================================================================
+
+class TranslateRequest(BaseModel):
+    text: str
+    target: str  # "tl" (Tagalog) or "ceb" (Cebuano/Bisaya)
+
+
+@app.post("/api/ai/translate")
+async def ai_translate(req: TranslateRequest) -> dict:
+    """Translate an interview question. Never fails the interview: ok=false on
+    any error and the caller falls back to the English original."""
+    if req.target not in ("tl", "ceb"):
+        raise HTTPException(status_code=400, detail="target must be 'tl' or 'ceb'")
+    from translation.translator import translate_text
+    translated = translate_text(req.text, req.target)
+    return {"translated": translated or "", "ok": translated is not None}
+
+
+# =============================================================================
 # Individual Model Endpoints
 # =============================================================================
 

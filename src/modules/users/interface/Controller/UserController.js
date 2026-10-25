@@ -56,6 +56,11 @@ export const updateProfile = asyncHandler(async (req, res) => {
     f_name: req.body.f_name,
     m_name: req.body.m_name,
     l_name: req.body.l_name,
+    profile_image: req.body.profile_image,
+    phone: req.body.phone,
+    specialization: req.body.specialization,
+    license_number: req.body.license_number,
+    affiliation: req.body.affiliation,
   });
 
   return sendSuccess(res, {

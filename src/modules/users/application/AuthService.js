@@ -152,34 +152,86 @@ export default class AuthService {
     return user;
   }
 
-  async updateProfile(userId, { f_name, m_name, l_name }) {
+  async updateProfile(userId, body) {
+    const { f_name, m_name, l_name, profile_image, phone, specialization, license_number, affiliation } = body;
     const errors = {};
+    const data = {};
 
-    const normalizedFName = f_name?.trim().toUpperCase();
-    const normalizedLName = l_name?.trim().toUpperCase();
-    const normalizedMName = m_name?.trim()?.toUpperCase() || null;
-
-    if (!normalizedFName) {
-      errors.f_name = "First name is required";
-    } else if (normalizedFName.length > 50) {
-      errors.f_name = "First name must not exceed 50 characters";
+    if (f_name !== undefined) {
+      const normalized = f_name?.trim().toUpperCase();
+      if (!normalized) {
+        errors.f_name = "First name cannot be empty";
+      } else if (normalized.length > 50) {
+        errors.f_name = "First name must not exceed 50 characters";
+      } else {
+        data.f_name = normalized;
+      }
     }
 
-    if (!normalizedLName) {
-      errors.l_name = "Last name is required";
-    } else if (normalizedLName.length > 50) {
-      errors.l_name = "Last name must not exceed 50 characters";
+    if (l_name !== undefined) {
+      const normalized = l_name?.trim().toUpperCase();
+      if (!normalized) {
+        errors.l_name = "Last name cannot be empty";
+      } else if (normalized.length > 50) {
+        errors.l_name = "Last name must not exceed 50 characters";
+      } else {
+        data.l_name = normalized;
+      }
+    }
+
+    if (m_name !== undefined) {
+      data.m_name = m_name?.trim()?.toUpperCase() || null;
+    }
+
+    if ((data.f_name || data.m_name !== undefined || data.l_name) && !errors.f_name && !errors.l_name) {
+      const current = await this.userRepository.findById(userId);
+      if (!current) {
+        throw new AppError("User not found", 404, "USER_NOT_FOUND");
+      }
+      data.full_name = [
+        data.f_name ?? current.f_name,
+        data.m_name !== undefined ? data.m_name : current.m_name,
+        data.l_name ?? current.l_name,
+      ].filter(Boolean).join(" ");
+    }
+
+    if (profile_image !== undefined) {
+      if (profile_image === null) {
+        data.profile_image = null;
+      } else if (typeof profile_image !== "string" || !/^data:image\/(png|jpe?g|webp);base64,/.test(profile_image)) {
+        errors.profile_image = "Profile image must be a base64 image data URL";
+      } else if (profile_image.length > 1_500_000) {
+        errors.profile_image = "Profile image must be under 1.5MB";
+      } else {
+        data.profile_image = profile_image;
+      }
+    }
+
+    const textFields = [
+      ["phone", phone, 30],
+      ["specialization", specialization, 120],
+      ["license_number", license_number, 60],
+      ["affiliation", affiliation, 120],
+    ];
+    for (const [key, value, max] of textFields) {
+      if (value === undefined) continue;
+      const normalized = value?.trim() || null;
+      if (normalized && normalized.length > max) {
+        errors[key] = `${key} must not exceed ${max} characters`;
+      } else {
+        data[key] = normalized;
+      }
     }
 
     if (Object.keys(errors).length > 0) {
       throw new ValidationError("Validation failed", errors);
     }
 
-    const updated = await this.userRepository.updateName(userId, {
-      f_name: normalizedFName,
-      m_name: normalizedMName,
-      l_name: normalizedLName,
-    });
+    if (Object.keys(data).length === 0) {
+      throw new AppError("No fields to update", 400, "NO_FIELDS");
+    }
+
+    const updated = await this.userRepository.updateProfile(userId, data);
 
     if (!updated) {
       throw new AppError("User not found", 404, "USER_NOT_FOUND");

@@ -4,10 +4,12 @@ export default class DashboardService {
   }
 
   async getStats(therapistId) {
-    const [stats, recentPatients, emotionTrend] = await Promise.all([
+    const [stats, recentPatients, emotionTrend, followUpCounts, upcomingFollowUps] = await Promise.all([
       this.dashboardRepo.getStats(therapistId),
       this.dashboardRepo.getRecentPatients(therapistId),
       this.dashboardRepo.getEmotionTrend(therapistId),
+      this.dashboardRepo.getFollowUpCounts(therapistId),
+      this.dashboardRepo.getUpcomingFollowUps(therapistId, 5),
     ]);
 
     return {
@@ -37,6 +39,18 @@ export default class DashboardService {
         happy: emotionTrend.happy,
         sad: emotionTrend.sad,
         angry: emotionTrend.angry,
+      },
+      followUps: {
+        upcoming: followUpCounts.upcoming,
+        dueToday: followUpCounts.due_today,
+        overdue: followUpCounts.overdue,
+        items: upcomingFollowUps.map((f) => ({
+          id: f.id,
+          patientName: f.patient_name,
+          recommendedDate: f.recommended_date,
+          appointmentTime: f.appointment_time,
+          status: f.status,
+        })),
       },
     };
   }

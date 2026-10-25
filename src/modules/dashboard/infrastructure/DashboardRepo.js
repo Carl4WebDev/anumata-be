@@ -56,6 +56,35 @@ export default class DashboardRepo {
     return result.rows;
   }
 
+  async getFollowUpCounts(therapistId) {
+    const result = await db.query(
+      `SELECT
+        COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date > CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as upcoming,
+        COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date = CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as due_today,
+        COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date < CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as overdue
+       FROM follow_ups
+       WHERE therapist_id = $1`,
+      [therapistId],
+    );
+    return result.rows[0] || { upcoming: 0, due_today: 0, overdue: 0 };
+  }
+
+  async getUpcomingFollowUps(therapistId, limit = 5) {
+    const result = await db.query(
+      `SELECT fu.follow_up_id as id, fu.recommended_date, fu.appointment_time, fu.status,
+              TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as patient_name
+       FROM follow_ups fu
+       JOIN patients p ON p.patient_id = fu.patient_id
+       WHERE fu.therapist_id = $1
+         AND fu.status IN ('recommended', 'scheduled')
+         AND fu.recommended_date >= CURRENT_DATE
+       ORDER BY fu.recommended_date ASC
+       LIMIT $2`,
+      [therapistId, limit],
+    );
+    return result.rows;
+  }
+
   async getEmotionTrend(therapistId) {
     const result = await db.query(
       `SELECT

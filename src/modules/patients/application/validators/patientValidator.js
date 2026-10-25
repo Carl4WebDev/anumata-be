@@ -28,8 +28,8 @@ export function validateCreatePatient({ f_name, m_name, l_name, age, gender, pri
 
   if (!gender?.trim()) {
     errors.gender = "Gender is required";
-  } else if (!["male", "female"].includes(gender.trim().toLowerCase())) {
-    errors.gender = "Gender must be male or female";
+  } else if (!["male", "female", "other"].includes(gender.trim().toLowerCase())) {
+    errors.gender = "Gender must be male, female, or other";
   }
 
   if (!primary_concern?.trim()) {
@@ -58,9 +58,30 @@ export function validateCreatePatient({ f_name, m_name, l_name, age, gender, pri
 /**
  * Validate patient update input.
  */
-export function validateUpdatePatient({ f_name, m_name, l_name, age, gender, primary_concern }) {
+export function validateUpdatePatient({ f_name, m_name, l_name, age, gender, primary_concern, profile_image, is_archived }) {
   const errors = {};
   const data = {};
+
+  if (profile_image !== undefined) {
+    if (profile_image === null) {
+      data.profile_image = null;
+    } else if (typeof profile_image !== "string" || !/^data:image\/(png|jpe?g|webp);base64,/.test(profile_image)) {
+      errors.profile_image = "Profile image must be a base64 image data URL";
+    } else if (profile_image.length > 1_500_000) {
+      errors.profile_image = "Profile image must be under 1.5MB";
+    } else {
+      data.profile_image = profile_image;
+    }
+  }
+
+  if (is_archived !== undefined) {
+    if (typeof is_archived !== "boolean") {
+      errors.is_archived = "is_archived must be a boolean";
+    } else {
+      data.is_archived = is_archived;
+      data.archived_at = is_archived ? new Date().toISOString() : null;
+    }
+  }
 
   if (f_name !== undefined) {
     if (!f_name?.trim()) {
@@ -97,8 +118,8 @@ export function validateUpdatePatient({ f_name, m_name, l_name, age, gender, pri
   if (gender !== undefined) {
     if (!gender?.trim()) {
       errors.gender = "Gender cannot be empty";
-    } else if (!["male", "female"].includes(gender.trim().toLowerCase())) {
-      errors.gender = "Gender must be male or female";
+    } else if (!["male", "female", "other"].includes(gender.trim().toLowerCase())) {
+      errors.gender = "Gender must be male, female, or other";
     } else {
       data.gender = gender.trim().toLowerCase();
     }
