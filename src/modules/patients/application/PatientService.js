@@ -1,5 +1,7 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
+import { postJson } from "../../../core/http/httpPost.js";
+import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 import { validateCreatePatient, validateUpdatePatient } from "./validators/patientValidator.js";
 import SessionRepo from "../../sessions/infrastructure/SessionRepo.js";
 
@@ -167,18 +169,15 @@ export default class PatientService {
 
     // Call Python AI service
     const aiUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
-    const response = await fetch(`${aiUrl}/api/longitudinal-report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessions: sessionsPayload }),
+    const response = await postJson(`${aiUrl}/api/longitudinal-report`, { sessions: sessionsPayload }, {
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new AppError(`AI service error: ${response.status} — ${text}`, 502, "AI_SERVICE_ERROR");
+      throw new AppError(`AI service error: ${response.status} — ${response.text}`, 502, "AI_SERVICE_ERROR");
     }
 
-    const report = await response.json();
+    const report = JSON.parse(response.text);
 
     // Add timestamp
     report.generated_at = new Date().toISOString();

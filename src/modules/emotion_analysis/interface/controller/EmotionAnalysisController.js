@@ -21,7 +21,7 @@ import EmotionAnalysisService from "../../application/EmotionAnalysisService.js"
 import InterviewLinkRepo from "../../../interview_links/infrastructure/InterviewLinkRepo.js";
 import SessionRepo from "../../../sessions/infrastructure/SessionRepo.js";
 import { notificationService } from "../../../notifications/notificationServiceInstance.js";
-import { createJobRegistry } from "../../application/analysisJobs.js";
+import { createJobRegistry } from "../../../../core/jobs/jobRegistry.js";
 import { createStagingStore, mergeFiles, STAGED_NAME } from "../../application/analysisStaging.js";
 import AppError from "../../../../core/errors/AppError.js";
 import ValidationError from "../../../../core/errors/ValidationError.js";
@@ -120,4 +120,18 @@ export const getAnalysisResults = asyncHandler(async (req, res) => {
     message: "Results fetched",
     data: result,
   });
+});
+
+/**
+ * POST /api/emotion/token/:token/crisis-alert (public, rate-limited)
+ * The interview room heard words that may mean self-harm: alert the therapist
+ * urgently. Only the fact is sent — what was said stays in the transcript.
+ */
+export const reportCrisis = asyncHandler(async (req, res) => {
+  const link = await emotionService.assertLink(req.params.token);
+  if (link.status === "completed") {
+    throw new AppError("This interview has already ended.", 409, "INTERVIEW_ENDED");
+  }
+  const result = await notificationService.notifyInterview(link, "crisis_flag");
+  return sendSuccess(res, { statusCode: 200, message: "Therapist alerted", data: { notified: result !== null } });
 });

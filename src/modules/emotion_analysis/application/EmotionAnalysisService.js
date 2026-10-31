@@ -27,8 +27,9 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
 import { generateEmotionalEventReport } from "./EmotionEventReportGenerator.js";
-import { postFormData } from "../../../core/http/postFormData.js";
+import { postFormData, postJson } from "../../../core/http/httpPost.js";
 import { pickEvidenceFrames } from "./evidenceFrames.js";
+import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 
 // Local Python AI service (FastAPI on port 8001)
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
@@ -357,18 +358,15 @@ export default class EmotionAnalysisService {
     });
 
     const aiUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
-    const response = await fetch(`${aiUrl}/api/longitudinal-report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessions: sessionsPayload }),
+    const response = await postJson(`${aiUrl}/api/longitudinal-report`, { sessions: sessionsPayload }, {
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`AI service returned ${response.status}: ${text}`);
+      throw new Error(`AI service returned ${response.status}: ${response.text}`);
     }
 
-    const report = await response.json();
+    const report = JSON.parse(response.text);
     report.generated_at = new Date().toISOString();
 
     // Persist to patients.longitudinal_report via PatientRepo

@@ -1,8 +1,8 @@
 import express from "express";
 import multer from "multer";
-import { analyzeInterview, getAnalysisResults, getAnalysisStatus, stageFiles } from "./controller/EmotionAnalysisController.js";
+import { analyzeInterview, getAnalysisResults, getAnalysisStatus, reportCrisis, stageFiles } from "./controller/EmotionAnalysisController.js";
 import InterviewLinkRepo from "../../interview_links/infrastructure/InterviewLinkRepo.js";
-import { analyzeLimiter, stagedUploadLimiter, sttLimiter } from "../../../core/middleware/PublicApiRateLimiter.js";
+import { analyzeLimiter, crisisAlertLimiter, stagedUploadLimiter, sttLimiter } from "../../../core/middleware/PublicApiRateLimiter.js";
 
 const interviewLinkRepo = new InterviewLinkRepo();
 
@@ -71,5 +71,6 @@ router.post("/token/:token/staged-files", stagedUploadLimiter, requireInterviewL
 router.post("/token/:token/analyze", analyzeLimiter, requireInterviewLink, upload.array("files", 500), analyzeInterview);
 router.get("/token/:token/analysis-status", getAnalysisStatus);
 router.get("/token/:token/results", getAnalysisResults);
+router.post("/token/:token/crisis-alert", crisisAlertLimiter, requireInterviewLink, reportCrisis);
 
 export default router;

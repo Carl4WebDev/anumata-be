@@ -18,6 +18,7 @@ import customQuestionRoutes from "./modules/custom_questions/interface/customQue
 import followUpRoutes from "./modules/follow_ups/interface/followUpRoutes.js";
 import appointmentRoutes from "./modules/appointments/interface/appointmentRoutes.js";
 import notificationRoutes from "./modules/notifications/interface/notificationRoutes.js";
+import aiJobRoutes from "./modules/ai_jobs/aiJobRoutes.js";
 
 import multer from "multer";
 import errorHandler from "./core/middleware/errorHandler.js";
@@ -131,6 +132,7 @@ app.use("/api/sessions", sessionRoutes);
 app.use("/api/follow-ups", followUpRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/ai-jobs", aiJobRoutes);
 
 // Error handling
 app.use(notFoundHandler);

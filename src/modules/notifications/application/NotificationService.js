@@ -25,6 +25,7 @@ export default class NotificationService {
    * Notify the therapist about an interview event. Never throws: a failed
    * notification must not break the interview or its analysis.
    * `link` is the interview link row (with patient_name).
+   * Returns the notification, { already_notified: true }, or null if it failed.
    */
   async notifyInterview(link, type, { sessionId = null } = {}) {
     const name = (link.patient_name || "Your patient").trim();
@@ -44,6 +45,13 @@ export default class NotificationService {
         message: "The interview was recorded, but the AI analysis failed. Check that the AI service is running.",
         route: `/patients/${link.patient_id}`,
       },
+      // Raised live from the interview room. What was said stays in the transcript.
+      crisis_flag: {
+        title: `Urgent: please check on ${name}`,
+        message:
+          "During the interview they said something that may mean thoughts of self-harm. Amumata showed them crisis hotlines. Please contact them as soon as you can.",
+        route: `/patients/${link.patient_id}`,
+      },
     }[type];
     if (!content) return null;
 
@@ -58,6 +66,8 @@ export default class NotificationService {
         interview_link_id: link.interview_link_id,
       });
     } catch (err) {
+      // One of each kind per interview (unique index): this one was sent before.
+      if (err.code === "23505") return { already_notified: true };
       console.error(`[NOTIFY] Could not create ${type} notification:`, err.message);
       return null;
     }

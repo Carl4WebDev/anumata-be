@@ -25,3 +25,5 @@ export const translateLimiter = publicRateLimiter({ max: 150, what: "translation
 // One early upload per answered question, plus retries.
 export const stagedUploadLimiter = publicRateLimiter({ max: 200, what: "upload" });
 export const analyzeLimiter = publicRateLimiter({ max: 20, what: "analysis" });
+// Sent once per interview; a few extra for refreshes.
+export const crisisAlertLimiter = publicRateLimiter({ max: 10, what: "alert" });

@@ -1,9 +1,9 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import NotificationService from "../application/NotificationService.js";
 import EmotionAnalysisService from "../../emotion_analysis/application/EmotionAnalysisService.js";
-import { postFormData } from "../../../core/http/postFormData.js";
+import { postFormData } from "../../../core/http/httpPost.js";
 
-vi.mock("../../../core/http/postFormData.js", () => ({ postFormData: vi.fn() }));
+vi.mock("../../../core/http/httpPost.js", () => ({ postFormData: vi.fn() }));
 
 const LINK = {
   interview_link_id: 7,
@@ -126,5 +126,35 @@ describe("EmotionAnalysisService — notifies the therapist", () => {
     const { service } = setup();
     service.notifier = null;
     await expect(service.analyzeByToken("tok", [])).resolves.toMatchObject({ session_id: 42 });
+  });
+});
+
+describe("NotificationService — crisis flag", () => {
+  test("urgent alert to the therapist, without what the patient said", async () => {
+    const repo = fakeRepo();
+    const result = await new NotificationService(repo).notifyInterview(LINK, "crisis_flag");
+    expect(result).not.toBeNull();
+    expect(repo.create).toHaveBeenCalledWith({
+      user_id: 3,
+      type: "crisis_flag",
+      title: "Urgent: please check on MARIA SANTOS",
+      message: expect.stringContaining("thoughts of self-harm"),
+      link: "/patients/9",
+      patient_id: 9,
+      interview_link_id: 7,
+    });
+  });
+
+  test("a second alert for the same interview counts as already sent", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const duplicate = Object.assign(new Error("duplicate key"), { code: "23505" });
+    const repo = fakeRepo({ create: vi.fn().mockRejectedValue(duplicate) });
+    expect(await new NotificationService(repo).notifyInterview(LINK, "crisis_flag")).toEqual({ already_notified: true });
+  });
+
+  test("a database failure still reports that nothing was sent", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const repo = fakeRepo({ create: vi.fn().mockRejectedValue(new Error("relation does not exist")) });
+    expect(await new NotificationService(repo).notifyInterview(LINK, "crisis_flag")).toBeNull();
   });
 });

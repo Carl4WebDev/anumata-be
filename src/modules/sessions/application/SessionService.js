@@ -1,5 +1,7 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
+import { postJson } from "../../../core/http/httpPost.js";
+import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 import { validateCreateSession, validateUpdateNotes } from "./validators/sessionValidator.js";
 
 export default class SessionService {
@@ -143,18 +145,13 @@ export default class SessionService {
 
     // Call Python AI service
     const aiUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
-    const response = await fetch(`${aiUrl}/api/regenerate-report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const response = await postJson(`${aiUrl}/api/regenerate-report`, payload, { timeoutMs: AI_REQUEST_TIMEOUT_MS });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new AppError(`AI service error: ${response.status} — ${text}`, 502, "AI_SERVICE_ERROR");
+      throw new AppError(`AI service error: ${response.status} — ${response.text}`, 502, "AI_SERVICE_ERROR");
     }
 
-    const report = await response.json();
+    const report = JSON.parse(response.text);
 
     // Update session report in DB
     await this.sessionRepo.updateReport(sessionId, report);

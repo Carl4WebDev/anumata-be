@@ -1,5 +1,6 @@
 import { sendSuccess } from "../../../../core/http/apiResponse.js";
 import { asyncHandler } from "../../../../core/middleware/asyncHandler.js";
+import { aiJobs } from "../../../ai_jobs/aiJobs.js";
 import PatientRepo from "../../infrastructure/PatientRepo.js";
 import PatientService from "../../application/PatientService.js";
 
@@ -56,11 +57,11 @@ export const deletePatient = asyncHandler(async (req, res) => {
   });
 });
 
+// Takes up to minutes: runs in the background; the page polls /api/ai-jobs/:id.
 export const generateLongitudinalReport = asyncHandler(async (req, res) => {
-  const result = await patientService.generateLongitudinalReport(req.user.id, req.params.id);
-  return sendSuccess(res, {
-    statusCode: 200,
-    message: "Longitudinal report generated",
-    data: result,
+  return aiJobs.start(res, {
+    userId: req.user.id,
+    key: `longitudinal:${req.params.id}`,
+    run: () => patientService.generateLongitudinalReport(req.user.id, req.params.id),
   });
 });

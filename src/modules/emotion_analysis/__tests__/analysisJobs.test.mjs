@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from "vitest";
 import http from "node:http";
-import { createJobRegistry } from "../application/analysisJobs.js";
-import { postFormData } from "../../../core/http/postFormData.js";
+import { createJobRegistry } from "../../../core/jobs/jobRegistry.js";
+import { postFormData } from "../../../core/http/httpPost.js";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 

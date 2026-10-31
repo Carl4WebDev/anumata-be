@@ -1,5 +1,6 @@
 import { sendSuccess } from "../../../../core/http/apiResponse.js";
 import { asyncHandler } from "../../../../core/middleware/asyncHandler.js";
+import { aiJobs } from "../../../ai_jobs/aiJobs.js";
 import SessionRepo from "../../infrastructure/SessionRepo.js";
 import SessionService from "../../application/SessionService.js";
 import InterviewLinkRepo from "../../../interview_links/infrastructure/InterviewLinkRepo.js";
@@ -71,11 +72,11 @@ export const deleteSession = asyncHandler(async (req, res) => {
   });
 });
 
+// Takes up to minutes: runs in the background; the page polls /api/ai-jobs/:id.
 export const regenerateReport = asyncHandler(async (req, res) => {
-  const result = await sessionService.regenerateReport(req.user.id, req.params.id);
-  return sendSuccess(res, {
-    statusCode: 200,
-    message: "Report regenerated",
-    data: result,
+  return aiJobs.start(res, {
+    userId: req.user.id,
+    key: `report:${req.params.id}`,
+    run: () => sessionService.regenerateReport(req.user.id, req.params.id),
   });
 });
