@@ -14,10 +14,12 @@ After all questions:
 import logging
 import time
 from collections import Counter
-from typing import Dict, List
+from pathlib import Path
+from typing import Callable, Dict, List
 
 from fer.fer_service import predict_emotion as fer_predict
-from ser.ser_service import predict_emotion as ser_predict
+from ser.ser_service import predict_emotion as ser_predict, _convert_to_wav
+from ser.acoustics import describe_voice, measure_voice_file, session_baseline, words_per_minute
 from ler.ler_service import predict_emotion as ler_predict
 from stt.stt_service import transcribe_audio
 from fusion.fusion_engine import (
@@ -37,6 +39,7 @@ def analyze_interview(
     frames: Dict[int, bytes],
     audios: Dict[int, bytes],
     audio_filenames: Dict[int, str],
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> dict:
     """
     Run the full analysis pipeline on an interview.
@@ -46,6 +49,8 @@ def analyze_interview(
         frames: {question_index: image_bytes} — JPEG frames from webcam.
         audios: {question_index: audio_bytes} — recorded audio per question.
         audio_filenames: {question_index: filename} — original audio filenames.
+        on_progress: optional callback(stage, done, total) — stage is "answers"
+            (done = answers finished so far) or "report"; shown to the patient.
 
     Returns:
         {
@@ -60,6 +65,7 @@ def analyze_interview(
     pipeline_start = time.time()
     per_question = []
     fusion_results = []
+    measured_voices: Dict[int, dict] = {}
     transcript_entries = []
 
     logger.info("=" * 60)
@@ -67,7 +73,15 @@ def analyze_interview(
                 len(questions), len(frames), len(audios))
     logger.info("=" * 60)
 
+    def progress(stage: str, done: int) -> None:
+        if on_progress:
+            try:
+                on_progress(stage, done, len(questions))
+            except Exception:  # progress reporting must never break the analysis
+                logger.warning("Progress callback failed", exc_info=True)
+
     for i, question in enumerate(questions):
+        progress("answers", i)
         q_start = time.time()
         logger.info("--- Q%d/%d ---", i + 1, len(questions))
 
@@ -149,8 +163,11 @@ def analyze_interview(
                 )
             except Exception as e:
                 logger.error("SER failed for Q%d: %s", i, e, exc_info=True)
+            # Measured voice features of this answer (pitch, loudness, pauses).
+            voice_features = _measure_answer_voice(audios[i], audio_filenames.get(i, "audio.webm"), i)
         else:
             logger.warning("SER skipped for Q%d: no audio", i)
+            voice_features = None
 
         # --- Speech-to-Text (BEFORE LER) ---
         transcript_text = None
@@ -235,6 +252,9 @@ def analyze_interview(
             "language_probability": stt_result.get("language_probability") if isinstance(stt_result, dict) else None,
         }
         per_question.append(entry)
+        if voice_features is not None:
+            voice_features["words_per_minute"] = words_per_minute(transcript_text, voice_features["speaking_time_s"])
+            measured_voices[i] = voice_features
 
         # Build transcript entry for report
         transcript_entries.append({
@@ -255,6 +275,9 @@ def analyze_interview(
             fusion["confidence"] * 100,
         )
 
+    # --- Measured voice vs. the patient's own usual voice this session ---
+    _attach_voice_details(per_question, measured_voices)
+
     # --- Pipeline validation ---
     _validate_pipeline(per_question, frames, audios)
 
@@ -270,6 +293,7 @@ def analyze_interview(
     logger.info("Spikes: %d detected", len(spikes))
 
     # --- Report generation (LLM via Ollama) ---
+    progress("report", len(questions))
     report = generate_report(
         transcript=transcript_entries,
         fusion_results=fusion_results,
@@ -292,6 +316,38 @@ def analyze_interview(
         "spikes": spikes,
         "report": report,
     }
+
+
+def _measure_answer_voice(audio_bytes: bytes, filename: str, index: int) -> dict | None:
+    """Pitch / loudness / pause measurements of one recorded answer (None on failure)."""
+    wav_path = None
+    try:
+        start = time.time()
+        wav_path = _convert_to_wav(audio_bytes, filename)
+        features = measure_voice_file(wav_path)
+        logger.info("[Q%d VOICE] measured in %.1fs: %s", index, time.time() - start, features)
+        return features
+    except Exception as e:
+        logger.error("[Q%d VOICE] measurement failed: %s", index, e, exc_info=True)
+        return None
+    finally:
+        if wav_path:
+            Path(wav_path).unlink(missing_ok=True)
+
+
+def _attach_voice_details(per_question: list, measured: Dict[int, dict]) -> None:
+    """
+    Compare each answer's measured voice with the patient's usual voice this
+    session and attach it as ser.audio_details (shown on the Voice Tone card).
+    """
+    if not measured:
+        return
+    baseline = session_baseline(list(measured.values()))
+    logger.info("[VOICE] Session baseline: %s", baseline)
+    for entry in per_question:
+        features = measured.get(entry["question_index"])
+        if features is not None and entry.get("ser") is not None:
+            entry["ser"]["audio_details"] = describe_voice(features, baseline)
 
 
 def _validate_pipeline(per_question: list, frames: dict, audios: dict) -> None:

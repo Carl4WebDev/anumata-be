@@ -2,6 +2,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import AppError from "../../../core/errors/AppError.js";
 import ValidationError from "../../../core/errors/ValidationError.js";
+import { checkPasswordStrength } from "./passwordPolicy.js";
+import { TERMS_VERSION } from "./termsVersion.js";
 
 export default class AuthService {
   constructor(userRepository, tokenService) {
@@ -9,8 +11,16 @@ export default class AuthService {
     this.tokenService = tokenService;
   }
 
-  validateRegisterInput({ email, password, f_name, m_name, l_name }) {
+  validateRegisterInput({ email, password, f_name, m_name, l_name, accepted_terms, terms_version }) {
     const errors = {};
+
+    // User Consent and Agreement Validation: the account is only created when
+    // the therapist accepted the CURRENT agreement (an old cached form can't).
+    if (accepted_terms !== true) {
+      errors.accepted_terms = "You must agree to the Terms of Use, Privacy Notice, and Responsible Use Agreement.";
+    } else if (terms_version !== TERMS_VERSION) {
+      errors.terms_version = "The agreement has been updated. Please reload the page and review it again.";
+    }
 
     const normalizedEmail = email?.trim().toLowerCase();
     const normalizedFName = f_name?.trim().toUpperCase();
@@ -23,10 +33,12 @@ export default class AuthService {
       errors.email = "Invalid email format";
     }
 
-    if (!password) {
-      errors.password = "Password is required";
-    } else if (password.length < 8) {
-      errors.password = "Password must be at least 8 characters";
+    const passwordProblems = checkPasswordStrength(password, {
+      email: normalizedEmail,
+      names: [normalizedFName, normalizedMName, normalizedLName],
+    });
+    if (passwordProblems.length > 0) {
+      errors.password = passwordProblems.join(" ");
     }
 
     if (!normalizedFName) {
@@ -42,7 +54,7 @@ export default class AuthService {
     }
 
     if (Object.keys(errors).length > 0) {
-      throw new ValidationError("Validation failed", errors);
+      throw new ValidationError(Object.values(errors).join(" "), errors);
     }
 
     return {
@@ -51,11 +63,12 @@ export default class AuthService {
       f_name: normalizedFName,
       m_name: normalizedMName,
       l_name: normalizedLName,
+      terms_version: TERMS_VERSION,
     };
   }
 
   async register(data) {
-    const { email, password, f_name, m_name, l_name } = this.validateRegisterInput(data);
+    const { email, password, f_name, m_name, l_name, terms_version } = this.validateRegisterInput(data);
 
     const existingUser = await this.userRepository.findByEmail(email);
 
@@ -71,6 +84,7 @@ export default class AuthService {
       f_name,
       m_name,
       l_name,
+      terms_version,
     });
 
     return user;
@@ -241,20 +255,8 @@ export default class AuthService {
   }
 
   async changePassword(userId, currentPassword, newPassword) {
-    const errors = {};
-
-    if (!currentPassword) {
-      errors.current_password = "Current password is required";
-    }
-
-    if (!newPassword) {
-      errors.new_password = "New password is required";
-    } else if (newPassword.length < 8) {
-      errors.new_password = "New password must be at least 8 characters";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      throw new ValidationError("Validation failed", errors);
+    if (typeof currentPassword !== "string" || !currentPassword) {
+      throw new ValidationError("Current password is required.", { current_password: "Current password is required" });
     }
 
     const user = await this.userRepository.findByIdWithPassword(userId);
@@ -265,12 +267,21 @@ export default class AuthService {
 
     const match = await bcrypt.compare(currentPassword, user.password_hash);
 
+    // 400, not 401: the session is valid, only the confirmation is wrong.
     if (!match) {
-      throw new AppError(
-        "Current password is incorrect",
-        401,
-        "INVALID_PASSWORD",
-      );
+      throw new AppError("Current password is incorrect.", 400, "INVALID_PASSWORD");
+    }
+
+    const problems = checkPasswordStrength(newPassword, {
+      email: user.email,
+      names: [user.f_name, user.m_name, user.l_name],
+    });
+    if (problems.length > 0) {
+      throw new ValidationError(problems.join(" "), { new_password: problems }, "WEAK_PASSWORD");
+    }
+
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+      throw new ValidationError("New password must be different from your current password.", null, "SAME_PASSWORD");
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);

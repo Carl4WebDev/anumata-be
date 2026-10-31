@@ -27,14 +27,29 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
 import { generateEmotionalEventReport } from "./EmotionEventReportGenerator.js";
+import { postFormData } from "../../../core/http/postFormData.js";
+import { pickEvidenceFrames } from "./evidenceFrames.js";
 
 // Local Python AI service (FastAPI on port 8001)
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
 
 export default class EmotionAnalysisService {
-  constructor(interviewLinkRepo, sessionRepo) {
+  /**
+   * @param notifier optional NotificationService — tells the therapist when the
+   *   patient finished, when results are ready, or if the analysis failed.
+   */
+  constructor(interviewLinkRepo, sessionRepo, notifier = null) {
     this.interviewLinkRepo = interviewLinkRepo;
     this.sessionRepo = sessionRepo;
+    this.notifier = notifier;
+  }
+
+  /** Fire-and-forget therapist notification (never blocks or breaks the analysis). */
+  _notify(link, type, extra) {
+    if (!this.notifier) return;
+    Promise.resolve(this.notifier.notifyInterview(link, type, extra)).catch((err) =>
+      console.error(`[NOTIFY] ${type} failed:`, err?.message),
+    );
   }
 
   async analyzeByToken(token, files) {
@@ -44,38 +59,8 @@ export default class EmotionAnalysisService {
       throw new NotFoundError("Interview link not found");
     }
 
-    // Build FormData for AI service
-    const formData = new FormData();
-    for (const file of files) {
-      const blob = new Blob([file.buffer], { type: file.mimetype || "application/octet-stream" });
-      formData.append("files", blob, file.originalname);
-    }
-
-    // Send question texts so AI service can include them in analysis
-    const questions = link.questions || [];
-    const questionTexts = questions.map((q) => (typeof q === "object" ? q?.text : q) || "");
-    formData.append("questions", JSON.stringify(questionTexts));
-
-    // Call AI service /api/analyze
-    let mlResult;
-    try {
-      const response = await fetch(`${AI_SERVICE_URL}/api/analyze`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new AppError(`ML service error: ${errText}`, 502, "ML_SERVICE_ERROR");
-      }
-
-      mlResult = await response.json();
-    } catch (err) {
-      if (err instanceof AppError) throw err;
-      throw new AppError("ML service unavailable", 503, "ML_SERVICE_UNAVAILABLE");
-    }
-
-    // Check if session already exists for this interview link (prevent duplicates)
+    // Already analysed (e.g. the upload was retried): return the stored result
+    // instead of re-running a multi-minute analysis.
     const existingSession = await this.sessionRepo.findByInterviewLinkId(link.interview_link_id);
     if (existingSession) {
       return {
@@ -103,6 +88,38 @@ export default class EmotionAnalysisService {
       };
     }
 
+    // The patient's recordings have arrived: their interview is done.
+    const firstAnalysis = link.status !== "completed";
+    if (firstAnalysis) this._notify(link, "interview_finished");
+
+    // Build FormData for AI service
+    const formData = new FormData();
+    for (const file of files) {
+      const blob = new Blob([file.buffer], { type: file.mimetype || "application/octet-stream" });
+      formData.append("files", blob, file.originalname);
+    }
+
+    // Send question texts so AI service can include them in analysis
+    const questions = link.questions || [];
+    const questionTexts = questions.map((q) => (typeof q === "object" ? q?.text : q) || "");
+    formData.append("questions", JSON.stringify(questionTexts));
+    // Lets the AI service report progress ("answer 3 of 8") under this id.
+    formData.append("job_id", token);
+
+    // Call AI service /api/analyze — no time limit: long interviews take minutes.
+    let mlResult;
+    try {
+      const response = await postFormData(`${AI_SERVICE_URL}/api/analyze`, formData);
+      if (!response.ok) {
+        throw new AppError(`ML service error: ${response.text}`, 502, "ML_SERVICE_ERROR");
+      }
+      mlResult = JSON.parse(response.text);
+    } catch (err) {
+      if (firstAnalysis) this._notify(link, "analysis_failed");
+      if (err instanceof AppError) throw err;
+      throw new AppError("ML service unavailable", 503, "ML_SERVICE_UNAVAILABLE");
+    }
+
     // Build a map of question_index → array of base64 frame images
     // Supports: frame_N.jpg (single) and frame_N_M.jpg (multi-frame)
     const frameMap = {};
@@ -125,15 +142,8 @@ export default class EmotionAnalysisService {
       const questionFrames = frameMap[i] || [];
       const bestIdx = q.best_frame_index || 0;
 
-      // Build evidence_frames array (all frames with their FER results)
-      const evidenceFrames = questionFrames.map((frameBase64, fIdx) => {
-        const ferForFrame = (q.all_fer_results || []).find((r) => r.frame_index === fIdx);
-        return {
-          frame_image: frameBase64,
-          fer_emotion: ferForFrame?.emotion || null,
-          fer_confidence: ferForFrame?.confidence || 0,
-        };
-      });
+      // Only a few frames are stored (the AI still saw them all)
+      const evidenceFrames = pickEvidenceFrames(questionFrames, q.all_fer_results, bestIdx);
 
       return {
         question: (typeof questions[i] === "object" ? questions[i]?.text : questions[i]) || `Question ${i + 1}`,
@@ -231,6 +241,7 @@ export default class EmotionAnalysisService {
 
     // Mark interview link as completed
     await this.interviewLinkRepo.updateStatus(link.interview_link_id, "completed");
+    this._notify(link, "results_ready", { sessionId: session.session_id });
 
     // Fire-and-forget: regenerate longitudinal AI summary for this patient
     // Does NOT block the analysis response. Failure is logged but not propagated.
@@ -248,6 +259,30 @@ export default class EmotionAnalysisService {
       emotional_events: emotionalEventReport.emotional_events,
       session_highlights: emotionalEventReport.session_highlights,
     };
+  }
+
+  /** Can this token be analysed? Throws 404 for an unknown interview link. */
+  async assertLink(token) {
+    const link = await this.interviewLinkRepo.findByToken(token);
+    if (!link) throw new NotFoundError("Interview link not found");
+    return link;
+  }
+
+  /**
+   * Live progress from the AI service ({ stage, done, total }), or null if
+   * unavailable. Never throws — progress is only for display.
+   */
+  async getProgress(token) {
+    try {
+      const response = await fetch(`${AI_SERVICE_URL}/api/analyze/progress/${encodeURIComponent(token)}`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!response.ok) return null;
+      const { stage, done, total } = await response.json();
+      return { stage, done, total };
+    } catch {
+      return null;
+    }
   }
 
   async getResultsByToken(token) {

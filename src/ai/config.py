@@ -1,5 +1,5 @@
 """
-Anumata AI Configuration.
+Amumata AI Configuration.
 
 All model paths, fusion weights, emotion labels, thresholds.
 Dataclasses for structured config to avoid hardcoded values.
@@ -148,7 +148,33 @@ class STTConfig:
     vad_filter: bool = True
 
 
-STT_CONFIG = STTConfig()
+def _whisper_device() -> str:
+    """WHISPER_DEVICE=cuda|cpu|auto (default auto: the GPU if there is one).
+
+    Hosting servers often have no NVIDIA GPU; forcing "cuda" there crashes
+    the first transcription.
+    """
+    wanted = os.environ.get("WHISPER_DEVICE", "auto").lower()
+    if wanted in ("cuda", "cpu"):
+        return wanted
+    try:
+        import ctranslate2
+
+        return "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+    except Exception:
+        return "cpu"
+
+
+_WHISPER_DEVICE = _whisper_device()
+
+STT_CONFIG = STTConfig(
+    # large-v3 is accurate but slow without a GPU; on CPU-only hosts set
+    # WHISPER_MODEL=small or medium.
+    model_size=os.environ.get("WHISPER_MODEL", "large-v3"),
+    device=_WHISPER_DEVICE,
+    # float16 needs a GPU; int8 is the fast CPU option.
+    compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "float16" if _WHISPER_DEVICE == "cuda" else "int8"),
+)
 WHISPER_MODEL_SIZE = STT_CONFIG.model_size
 WHISPER_DEVICE = STT_CONFIG.device
 WHISPER_COMPUTE_TYPE = STT_CONFIG.compute_type
@@ -195,5 +221,7 @@ SPIKE_CONFIG = SpikeConfig()
 # SERVER
 # =============================================================================
 
-AI_SERVICE_HOST = "0.0.0.0"
-AI_SERVICE_PORT = 8001
+# Set AI_SERVICE_HOST=127.0.0.1 when Node runs on the same machine, so the
+# AI endpoints (which have no login) can't be reached from the internet.
+AI_SERVICE_HOST = os.environ.get("AI_SERVICE_HOST", "0.0.0.0")
+AI_SERVICE_PORT = int(os.environ.get("AI_SERVICE_PORT", "8001"))

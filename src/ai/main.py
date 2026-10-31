@@ -1,5 +1,5 @@
 """
-Anumata AI Service — FastAPI application.
+Amumata AI Service — FastAPI application.
 
 Runs on port 8001. Provides emotion recognition endpoints
 for the Express backend to call.
@@ -7,13 +7,16 @@ Models are preloaded once at startup.
 """
 
 import logging
+import os
 import re
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 # Add AI root to path for imports
@@ -32,7 +35,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Preload all models at startup."""
-    logger.info("=== Anumata AI Service Starting ===")
+    logger.info("=== Amumata AI Service Starting ===")
     logger.info("Preloading models...")
 
     try:
@@ -68,13 +71,14 @@ async def lifespan(app: FastAPI):
     logger.info("=== Shutting down ===")
 
 
-app = FastAPI(title="Anumata AI Service", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Amumata AI Service", version="2.0.0", lifespan=lifespan)
 
+# Only the Node backend calls this service (server to server, where CORS
+# doesn't apply); browsers never should. Allow none unless configured.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[o for o in os.environ.get("AI_ALLOWED_ORIGINS", "").split(",") if o],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -122,13 +126,40 @@ async def health():
 # Full Interview Analysis
 # =============================================================================
 
+# Progress of running analyses, keyed by the caller's job id (the interview
+# token). Read by GET /api/analyze/progress/{job_id} so the patient can see
+# "Analysing answer 3 of 8" during long interviews.
+_PROGRESS: dict[str, dict] = {}
+_PROGRESS_TTL_S = 3600
+
+
+def _set_progress(job_id: str, stage: str, done: int, total: int) -> None:
+    now = time.time()
+    for key in [k for k, v in _PROGRESS.items() if now - v["updated_at"] > _PROGRESS_TTL_S]:
+        _PROGRESS.pop(key, None)
+    _PROGRESS[job_id] = {"stage": stage, "done": done, "total": total, "updated_at": now}
+
+
+@app.get("/api/analyze/progress/{job_id}")
+async def analyze_progress(job_id: str):
+    entry = _PROGRESS.get(job_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No analysis in progress for this id")
+    return entry
+
+
 @app.post("/api/analyze")
-async def analyze(files: list[UploadFile] = File(...), questions: str = Form("[]")):
+async def analyze(
+    files: list[UploadFile] = File(...),
+    questions: str = Form("[]"),
+    job_id: str = Form(""),
+):
     """
     Full interview analysis.
 
     Accepts multipart files: frame_N.jpg (images) + audio_N.webm (audio).
     Accepts optional 'questions' form field with JSON array of question texts.
+    Optional 'job_id' enables progress reporting at /api/analyze/progress/{job_id}.
     Returns per-question analysis with fusion, spikes, and report.
     """
     import json
@@ -177,12 +208,25 @@ async def analyze(files: list[UploadFile] = File(...), questions: str = Form("[]
     else:
         final_questions = question_texts + [f"Question {i + 1}" for i in range(len(question_texts), num_questions)]
 
+    on_progress = None
+    if job_id:
+        _set_progress(job_id, "answers", 0, num_questions)
+        on_progress = lambda stage, done, total: _set_progress(job_id, stage, done, total)  # noqa: E731
+
     try:
         from ai_service import analyze_interview
-        result = analyze_interview(final_questions, frames, audios, audio_filenames)
+        # The pipeline blocks for minutes: run it off the event loop so health
+        # checks, progress polling and live captions keep being served.
+        result = await run_in_threadpool(
+            analyze_interview, final_questions, frames, audios, audio_filenames, on_progress
+        )
+        if job_id:
+            _set_progress(job_id, "done", num_questions, num_questions)
         return result
     except Exception as e:
         logger.error("Analysis failed: %s", e, exc_info=True)
+        if job_id:
+            _set_progress(job_id, "failed", 0, num_questions)
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
@@ -191,12 +235,24 @@ async def analyze(files: list[UploadFile] = File(...), questions: str = Form("[]
 # =============================================================================
 
 @app.post("/api/stt/transcribe")
-async def stt_transcribe(file: UploadFile = File(...)):
-    """Transcribe audio without running FER/SER/LER/fusion. Used for rapport voice input."""
+async def stt_transcribe(
+    file: UploadFile = File(...),
+    purpose: str = Form("rapport"),
+    language_hint: str | None = Form(None),
+):
+    """
+    Transcribe audio without running FER/SER/LER/fusion. Used for interview
+    voice input. purpose="caption" is the fast mode for live-caption phrases.
+    """
     try:
         content = await file.read()
         from stt.stt_service import transcribe_audio
-        result = transcribe_audio(content, file.filename)
+        hint = language_hint if language_hint in ("en", "tl", "ceb") else None
+        # Whisper blocks for seconds; run it off the event loop so health checks
+        # and other requests are not frozen behind a transcription.
+        result = await run_in_threadpool(
+            transcribe_audio, content, file.filename, fast=purpose == "caption", language_hint=hint
+        )
         return result
     except Exception as e:
         logger.error("STT transcription failed: %s", e, exc_info=True)

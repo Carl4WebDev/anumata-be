@@ -103,6 +103,36 @@ export function validateUpdateFollowUp({ status, recommended_date, appointment_t
   return { ok: true, data };
 }
 
+/**
+ * Rules for edits made directly on a follow-up (not through its appointment):
+ * - 'scheduled' is only reached by booking an appointment for it;
+ * - while it has a booked appointment, its status, date and time follow that
+ *   appointment and can only change there. The note stays editable.
+ */
+export function checkManualFollowUpUpdate(followUp, changes) {
+  const statusChanging = changes.status !== undefined && changes.status !== followUp.status;
+  if (followUp.appointment_id) {
+    const touchesBooking =
+      statusChanging || changes.recommended_date !== undefined || changes.appointment_time !== undefined;
+    if (touchesBooking) {
+      return {
+        ok: false,
+        code: "FOLLOW_UP_BOOKED",
+        error: "This follow-up has a booked appointment. Reschedule, cancel or close it from the appointment.",
+      };
+    }
+    return { ok: true };
+  }
+  if (statusChanging && changes.status === "scheduled") {
+    return { ok: false, code: "BOOK_TO_SCHEDULE", error: "Book an appointment to schedule this follow-up." };
+  }
+  if (statusChanging) {
+    const transition = validateStatusTransition(followUp.status, changes.status);
+    if (!transition.ok) return { ok: false, code: "VALIDATION_ERROR", error: transition.error };
+  }
+  return { ok: true };
+}
+
 export function validateStatusTransition(currentStatus, newStatus) {
   const allowed = STATUS_TRANSITIONS[currentStatus];
   if (!allowed) {

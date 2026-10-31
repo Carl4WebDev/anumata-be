@@ -1,6 +1,12 @@
 import IFollowUpRepo from "../domain/IFollowUpRepo.js";
 import db from "../../../core/database/db.js";
 
+// The scheduled appointment booked from a follow-up, if any (at most one —
+// enforced by appointments_one_scheduled_per_follow_up).
+const BOOKED_APPOINTMENT_JOIN =
+  "LEFT JOIN appointments ap ON ap.follow_up_id = fu.follow_up_id AND ap.status = 'scheduled'";
+const BOOKED_APPOINTMENT_COLUMNS = "ap.appointment_id, ap.start_at AS appointment_start_at";
+
 export default class FollowUpRepo extends IFollowUpRepo {
   async create(data) {
     const result = await db.query(
@@ -14,9 +20,10 @@ export default class FollowUpRepo extends IFollowUpRepo {
 
   async findById(id) {
     const result = await db.query(
-      `SELECT fu.*,
+      `SELECT fu.*, ${BOOKED_APPOINTMENT_COLUMNS},
               TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as patient_name
        FROM follow_ups fu
+       ${BOOKED_APPOINTMENT_JOIN}
        JOIN patients p ON p.patient_id = fu.patient_id
        WHERE fu.follow_up_id = $1`,
       [id],
@@ -26,8 +33,9 @@ export default class FollowUpRepo extends IFollowUpRepo {
 
   async findByPatientId(patientId, therapistId) {
     const result = await db.query(
-      `SELECT fu.*
+      `SELECT fu.*, ${BOOKED_APPOINTMENT_COLUMNS}
        FROM follow_ups fu
+       ${BOOKED_APPOINTMENT_JOIN}
        WHERE fu.patient_id = $1 AND fu.therapist_id = $2
        ORDER BY fu.recommended_date DESC`,
       [patientId, therapistId],
@@ -50,9 +58,10 @@ export default class FollowUpRepo extends IFollowUpRepo {
     const offsetParam = params.length;
 
     const result = await db.query(
-      `SELECT fu.*,
+      `SELECT fu.*, ${BOOKED_APPOINTMENT_COLUMNS},
               TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as patient_name
        FROM follow_ups fu
+       ${BOOKED_APPOINTMENT_JOIN}
        JOIN patients p ON p.patient_id = fu.patient_id
        ${whereClause}
        ORDER BY fu.recommended_date ASC
@@ -65,9 +74,10 @@ export default class FollowUpRepo extends IFollowUpRepo {
 
   async findUpcoming(therapistId, limit = 10) {
     const result = await db.query(
-      `SELECT fu.*,
+      `SELECT fu.*, ${BOOKED_APPOINTMENT_COLUMNS},
               TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as patient_name
        FROM follow_ups fu
+       ${BOOKED_APPOINTMENT_JOIN}
        JOIN patients p ON p.patient_id = fu.patient_id
        WHERE fu.therapist_id = $1
          AND fu.status IN ('recommended', 'scheduled')
@@ -81,9 +91,10 @@ export default class FollowUpRepo extends IFollowUpRepo {
 
   async findDueToday(therapistId) {
     const result = await db.query(
-      `SELECT fu.*,
+      `SELECT fu.*, ${BOOKED_APPOINTMENT_COLUMNS},
               TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as patient_name
        FROM follow_ups fu
+       ${BOOKED_APPOINTMENT_JOIN}
        JOIN patients p ON p.patient_id = fu.patient_id
        WHERE fu.therapist_id = $1
          AND fu.status IN ('recommended', 'scheduled')
@@ -96,9 +107,10 @@ export default class FollowUpRepo extends IFollowUpRepo {
 
   async findOverdue(therapistId) {
     const result = await db.query(
-      `SELECT fu.*,
+      `SELECT fu.*, ${BOOKED_APPOINTMENT_COLUMNS},
               TRIM(p.f_name || ' ' || COALESCE(p.m_name || ' ', '') || p.l_name) as patient_name
        FROM follow_ups fu
+       ${BOOKED_APPOINTMENT_JOIN}
        JOIN patients p ON p.patient_id = fu.patient_id
        WHERE fu.therapist_id = $1
          AND fu.status IN ('recommended', 'scheduled')
@@ -141,7 +153,9 @@ export default class FollowUpRepo extends IFollowUpRepo {
       `SELECT
         COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date > CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as upcoming,
         COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date = CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as due_today,
-        COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date < CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as overdue
+        COALESCE(SUM(CASE WHEN status IN ('recommended', 'scheduled') AND recommended_date < CURRENT_DATE THEN 1 ELSE 0 END), 0)::int as overdue,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0)::int as completed,
+        COALESCE(SUM(CASE WHEN status IN ('cancelled', 'missed') THEN 1 ELSE 0 END), 0)::int as cancelled_or_missed
        FROM follow_ups
        WHERE therapist_id = $1`,
       [therapistId],

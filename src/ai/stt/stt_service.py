@@ -11,7 +11,9 @@ import time
 from pathlib import Path
 
 import numpy as np
-from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel, decode_audio
+
+from stt.language import CODE_SWITCH_PROMPT, is_phantom, pick_language
 
 from config import (
     STT_CONFIG,
@@ -116,9 +118,18 @@ def _preprocess_audio(wav_path: str) -> str:
     return tmp_out.name
 
 
-def transcribe_audio(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
+def transcribe_audio(
+    audio_bytes: bytes,
+    filename: str = "audio.webm",
+    fast: bool = False,
+    language_hint: str | None = None,
+) -> dict:
     """
-    Transcribe audio to text with preprocessing and auto-detection.
+    Transcribe audio to text with preprocessing and English/Tagalog detection.
+
+    fast: live-caption mode for short phrases — greedy decoding (beam 1).
+    language_hint: patient's known language ("en", "tl", "ceb"); keeps
+        ambiguous short phrases from flipping language.
 
     Returns dict with transcription result and quality metadata.
     """
@@ -139,32 +150,53 @@ def transcribe_audio(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
         preprocessed_path = _preprocess_audio(wav_path)
         logger.info("[STT] Audio preprocessed")
 
-        # Transcribe with auto-detection (no forced language)
-        # This lets Whisper detect Filipino, Bisaya, English, or mixed
+        # Detect among English/Tagalog only (see stt/language.py): Bisaya has
+        # no Whisper code and is otherwise misread as Indonesian/Malay.
+        audio = decode_audio(preprocessed_path, sampling_rate=16000)
+        if fast and language_hint in ("en", "tl", "ceb"):
+            # Live captions: the patient's language is already known — skip the
+            # extra detection pass (a full encoder run) to keep captions quick.
+            detected = "hint"
+            language = "en" if language_hint == "en" else "tl"
+        else:
+            detected, _detected_prob, all_probs = model.detect_language(audio)
+            language = pick_language(all_probs, hint=language_hint)
+
         segments, info = model.transcribe(
-            preprocessed_path,
-            beam_size=STT_CONFIG.beam_size,
+            audio,
+            beam_size=1 if fast else STT_CONFIG.beam_size,
             vad_filter=STT_CONFIG.vad_filter,
-            language=None,  # Auto-detect language
-            condition_on_previous_text=True,
+            language=language,
+            initial_prompt=CODE_SWITCH_PROMPT,
+            condition_on_previous_text=not fast,
             temperature=0.0,
             compression_ratio_threshold=2.4,
             log_prob_threshold=-1.0,
             no_speech_threshold=0.6,
         )
 
-        text = " ".join(segment.text.strip() for segment in segments)
+        kept = [
+            segment.text.strip()
+            for segment in segments
+            if not is_phantom(segment.text, segment.no_speech_prob, segment.avg_logprob)
+        ]
+        text = " ".join(t for t in kept if t)
+        # The priming prompt must never be echoed back as speech.
+        if text and text.strip() == CODE_SWITCH_PROMPT.strip():
+            text = ""
         elapsed = time.time() - start_time
 
         logger.info(
-            "[STT] Transcription complete in %.1fs\n"
-            "  Language: %s (prob: %.2f)\n"
+            "[STT] Transcription complete in %.1fs (fast=%s)\n"
+            "  Language: %s (raw detection: %s, hint: %s)\n"
             "  Duration: %.1fs\n"
             "  Text length: %d chars\n"
             "  Text: %s",
             elapsed,
-            info.language,
-            info.language_probability,
+            fast,
+            language,
+            detected,
+            language_hint,
             info.duration,
             len(text),
             text[:200] if text else "(empty)",

@@ -10,6 +10,7 @@ import {
   validateCreateFollowUp,
   validateUpdateFollowUp,
   validateStatusTransition,
+  checkManualFollowUpUpdate,
 } from "../application/validators/followUpValidator.js";
 
 // ─── Validation Tests ───
@@ -241,5 +242,42 @@ describe("overdue status calculation", () => {
 
   it("does not mark missed as overdue", () => {
     expect(isOverdue("missed", "2026-10-01", "2026-10-20")).toBe(false);
+  });
+});
+
+// ─── Appointment link: manual edits ───
+
+describe("checkManualFollowUpUpdate", () => {
+  const open = { status: "recommended", appointment_id: null };
+  const booked = { status: "scheduled", appointment_id: 7 };
+
+  it("only booking an appointment can schedule a follow-up", () => {
+    const result = checkManualFollowUpUpdate(open, { status: "scheduled" });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("BOOK_TO_SCHEDULE");
+    expect(checkManualFollowUpUpdate({ status: "missed", appointment_id: null }, { status: "scheduled" }).code).toBe("BOOK_TO_SCHEDULE");
+  });
+
+  it("allows closing an unbooked follow-up by hand", () => {
+    expect(checkManualFollowUpUpdate(open, { status: "completed" }).ok).toBe(true);
+    expect(checkManualFollowUpUpdate(open, { status: "cancelled" }).ok).toBe(true);
+    // Legacy 'scheduled' follow-ups without an appointment keep their manual actions.
+    expect(checkManualFollowUpUpdate({ status: "scheduled", appointment_id: null }, { status: "missed" }).ok).toBe(true);
+  });
+
+  it("still enforces the lifecycle for manual changes", () => {
+    const result = checkManualFollowUpUpdate(open, { status: "missed" });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("a booked follow-up's status, date and time follow its appointment", () => {
+    expect(checkManualFollowUpUpdate(booked, { status: "completed" }).code).toBe("FOLLOW_UP_BOOKED");
+    expect(checkManualFollowUpUpdate(booked, { recommended_date: "2026-12-01" }).code).toBe("FOLLOW_UP_BOOKED");
+    expect(checkManualFollowUpUpdate(booked, { appointment_time: "10:00" }).code).toBe("FOLLOW_UP_BOOKED");
+  });
+
+  it("a booked follow-up's note can still be edited", () => {
+    expect(checkManualFollowUpUpdate(booked, { reason: "Bring sleep diary" }).ok).toBe(true);
   });
 });

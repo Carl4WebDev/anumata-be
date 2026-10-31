@@ -5,11 +5,12 @@ import User from "../domain/Users/User.js";
 export default class UserRepo extends IUserRepo {
   async create(user) {
     const fullName = `${user.f_name} ${user.m_name ? user.m_name + " " : ""}${user.l_name}`.trim();
+    // terms_accepted_at is set by the database clock at the moment of creation.
     const result = await db.query(
-      `INSERT INTO users (email, password_hash, f_name, m_name, l_name, full_name)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING user_id, email, f_name, m_name, l_name`,
-      [user.email, user.password_hash, user.f_name, user.m_name || null, user.l_name, fullName],
+      `INSERT INTO users (email, password_hash, f_name, m_name, l_name, full_name, terms_version, terms_accepted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7::varchar IS NULL THEN NULL ELSE NOW() END)
+       RETURNING user_id, email, f_name, m_name, l_name, terms_version, terms_accepted_at`,
+      [user.email, user.password_hash, user.f_name, user.m_name || null, user.l_name, fullName, user.terms_version ?? null],
     );
 
     return result.rows[0];

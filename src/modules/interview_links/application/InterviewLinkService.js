@@ -51,7 +51,7 @@ export default class InterviewLinkService {
       }));
     }
 
-    return this.interviewLinkRepo.createWithSnapshot(
+    const created = await this.interviewLinkRepo.createWithSnapshot(
       {
         therapist_id: therapistId,
         patient_id: validated.patient_id,
@@ -61,6 +61,9 @@ export default class InterviewLinkService {
       },
       snapshots,
     );
+    // Return it with patient and question-set names, like the list does, so
+    // the new row shows complete without a page refresh.
+    return (await this.interviewLinkRepo.findById(created.interview_link_id)) ?? created;
   }
 
   async getByToken(token) {

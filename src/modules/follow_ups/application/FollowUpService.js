@@ -1,6 +1,6 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
-import { validateCreateFollowUp, validateUpdateFollowUp, validateStatusTransition } from "./validators/followUpValidator.js";
+import { validateCreateFollowUp, validateUpdateFollowUp, checkManualFollowUpUpdate } from "./validators/followUpValidator.js";
 import PatientRepo from "../../patients/infrastructure/PatientRepo.js";
 
 const patientRepo = new PatientRepo();
@@ -91,11 +91,10 @@ export default class FollowUpService {
       throw new AppError("No fields to update", 400, "NO_FIELDS");
     }
 
-    if (result.data.status !== undefined && result.data.status !== followUp.status) {
-      const transition = validateStatusTransition(followUp.status, result.data.status);
-      if (!transition.ok) {
-        throw new AppError("Invalid status transition", 400, "VALIDATION_ERROR", { error: transition.error });
-      }
+    const check = checkManualFollowUpUpdate(followUp, result.data);
+    if (!check.ok) {
+      const statusCode = check.code === "VALIDATION_ERROR" ? 400 : 409;
+      throw new AppError(check.error, statusCode, check.code, { error: check.error });
     }
 
     return this.followUpRepo.update(followUpId, result.data);

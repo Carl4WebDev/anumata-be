@@ -1,6 +1,24 @@
 import express from "express";
 import multer from "multer";
-import { analyzeInterview, getAnalysisResults } from "./controller/EmotionAnalysisController.js";
+import { analyzeInterview, getAnalysisResults, getAnalysisStatus, stageFiles } from "./controller/EmotionAnalysisController.js";
+import InterviewLinkRepo from "../../interview_links/infrastructure/InterviewLinkRepo.js";
+import { analyzeLimiter, stagedUploadLimiter, sttLimiter } from "../../../core/middleware/PublicApiRateLimiter.js";
+
+const interviewLinkRepo = new InterviewLinkRepo();
+
+/**
+ * Check the interview token BEFORE accepting uploads, so nobody can make the
+ * server buffer hundreds of megabytes for a link that doesn't exist.
+ */
+const requireInterviewLink = async (req, res, next) => {
+  try {
+    const link = await interviewLinkRepo.findByToken(req.params.token);
+    if (!link) return res.status(404).json({ status: "error", message: "Interview link not found" });
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
 
 const router = express.Router();
 
@@ -20,7 +38,7 @@ const sttUpload = multer({
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
 
-router.post("/stt/transcribe", sttUpload.single("file"), async (req, res) => {
+router.post("/stt/transcribe", sttLimiter, sttUpload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ status: "error", message: "No audio file provided" });
@@ -33,6 +51,7 @@ router.post("/stt/transcribe", sttUpload.single("file"), async (req, res) => {
     const response = await fetch(`${AI_SERVICE_URL}/api/stt/transcribe`, {
       method: "POST",
       body: formData,
+      signal: AbortSignal.timeout(60000),
     });
 
     const data = await response.json();
@@ -48,7 +67,9 @@ router.post("/stt/transcribe", sttUpload.single("file"), async (req, res) => {
 });
 
 // Public routes — patient accesses via interview link token
-router.post("/token/:token/analyze", upload.array("files", 500), analyzeInterview);
+router.post("/token/:token/staged-files", stagedUploadLimiter, requireInterviewLink, upload.array("files", 500), stageFiles);
+router.post("/token/:token/analyze", analyzeLimiter, requireInterviewLink, upload.array("files", 500), analyzeInterview);
+router.get("/token/:token/analysis-status", getAnalysisStatus);
 router.get("/token/:token/results", getAnalysisResults);
 
 export default router;

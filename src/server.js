@@ -1,5 +1,7 @@
-import dotenv from "dotenv";
-dotenv.config();
+// Must be the first import: ES imports run before this file's code, so a
+// plain dotenv.config() here would load .env after the other modules have
+// already read process.env (AI_SERVICE_URL etc. would silently be defaults).
+import "dotenv/config";
 
 import app from "./app.js";
 

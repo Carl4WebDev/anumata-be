@@ -16,11 +16,14 @@ import dashboardRoutes from "./modules/dashboard/interface/dashboardRoutes.js";
 import standardizedQuestionRoutes from "./modules/standardized_questions/interface/standardizedQuestionRoutes.js";
 import customQuestionRoutes from "./modules/custom_questions/interface/customQuestionRoutes.js";
 import followUpRoutes from "./modules/follow_ups/interface/followUpRoutes.js";
+import appointmentRoutes from "./modules/appointments/interface/appointmentRoutes.js";
+import notificationRoutes from "./modules/notifications/interface/notificationRoutes.js";
 
 import multer from "multer";
 import errorHandler from "./core/middleware/errorHandler.js";
 import notFoundHandler from "./core/middleware/notFoundHandler.js";
 import healthRoute from "./core/http/healthRoutes.js";
+import { sttLimiter, translateLimiter } from "./core/middleware/PublicApiRateLimiter.js";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
 const sttUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -73,12 +76,20 @@ app.use("/api/interview-links", interviewLinkRoutes);
 app.use("/api/emotion", emotionAnalysisRoutes);
 
 // Public STT proxy — forwards audio to Python AI service for Whisper transcription
-app.post("/api/stt/transcribe", sttUpload.single("file"), async (req, res, next) => {
+app.post("/api/stt/transcribe", sttLimiter, sttUpload.single("file"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No audio file provided" });
     const formData = new FormData();
     formData.append("file", new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname || "audio.webm");
-    const response = await fetch(`${AI_SERVICE_URL}/api/stt/transcribe`, { method: "POST", body: formData });
+    // Optional: purpose=caption (fast live-caption mode), language_hint=en|tl|ceb.
+    const { purpose, language_hint } = req.body || {};
+    if (purpose === "caption" || purpose === "rapport") formData.append("purpose", purpose);
+    if (["en", "tl", "ceb"].includes(language_hint)) formData.append("language_hint", language_hint);
+    const response = await fetch(`${AI_SERVICE_URL}/api/stt/transcribe`, {
+      method: "POST",
+      body: formData,
+      signal: AbortSignal.timeout(60000),
+    });
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json(data);
     res.json({ status: "ok", data });
@@ -90,16 +101,17 @@ app.post("/api/stt/transcribe", sttUpload.single("file"), async (req, res, next)
 // Public question translation proxy — translates interview questions to the
 // patient's language via the Python AI service (Ollama). Failure returns ok:false
 // and the interview continues in English.
-app.post("/api/ai/translate", async (req, res, next) => {
+app.post("/api/ai/translate", translateLimiter, async (req, res, next) => {
   try {
     const { text, target } = req.body || {};
-    if (typeof text !== "string" || !["tl", "ceb"].includes(target)) {
+    if (typeof text !== "string" || text.length > 2000 || !["tl", "ceb"].includes(target)) {
       return res.status(400).json({ status: "error", message: "text and target (tl|ceb) required" });
     }
     const response = await fetch(`${AI_SERVICE_URL}/api/ai/translate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, target }),
+      signal: AbortSignal.timeout(30000),
     });
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json(data);
@@ -117,6 +129,8 @@ app.use("/api/standardized-questions", standardizedQuestionRoutes);
 app.use("/api/custom-questions", customQuestionRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/follow-ups", followUpRoutes);
+app.use("/api/appointments", appointmentRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Error handling
 app.use(notFoundHandler);
