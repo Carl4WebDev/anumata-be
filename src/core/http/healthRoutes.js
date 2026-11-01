@@ -3,7 +3,7 @@ import db from "../database/db.js";
 
 const router = Router();
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
+import { AI_SERVICE_URL, aiServiceHeaders } from "./aiService.js";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 /**
@@ -44,6 +44,7 @@ router.get("/api/system/health", async (req, res) => {
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     const aiRes = await fetch(`${AI_SERVICE_URL}/health`, {
+      headers: aiServiceHeaders(),
       signal: controller.signal,
     });
     clearTimeout(timeout);

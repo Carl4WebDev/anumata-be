@@ -2,6 +2,7 @@ import { asyncHandler } from "../../../../core/middleware/asyncHandler.js";
 import AppError from "../../../../core/errors/AppError.js";
 import { aiJobs, AI_REQUEST_TIMEOUT_MS } from "../../../ai_jobs/aiJobs.js";
 import { postJson } from "../../../../core/http/httpPost.js";
+import { AI_SERVICE_URL, aiServiceHeaders } from "../../../../core/http/aiService.js";
 
 /**
  * Question Set AI Controller — proxies to Python AI service (Ollama / Llama 3.2:3B).
@@ -14,12 +15,11 @@ import { postJson } from "../../../../core/http/httpPost.js";
  * endpoint answers 202 { job_id } and the page polls GET /api/ai-jobs/:id.
  */
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
-
 /** POST to the AI service; a 503 there means the AI is off → `unavailableMessage`. */
 async function callQuestionSetAi(path, body, unavailableMessage) {
   const response = await postJson(`${AI_SERVICE_URL}/api/question-sets/ai/${path}`, body, {
     timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    headers: aiServiceHeaders(),
   });
 
   if (!response.ok) {

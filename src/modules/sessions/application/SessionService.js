@@ -1,6 +1,7 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
 import { postJson } from "../../../core/http/httpPost.js";
+import { AI_SERVICE_URL, aiServiceHeaders } from "../../../core/http/aiService.js";
 import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 import { validateCreateSession, validateUpdateNotes } from "./validators/sessionValidator.js";
 
@@ -144,8 +145,7 @@ export default class SessionService {
     };
 
     // Call Python AI service
-    const aiUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
-    const response = await postJson(`${aiUrl}/api/regenerate-report`, payload, { timeoutMs: AI_REQUEST_TIMEOUT_MS });
+    const response = await postJson(`${AI_SERVICE_URL}/api/regenerate-report`, payload, { timeoutMs: AI_REQUEST_TIMEOUT_MS, headers: aiServiceHeaders() });
 
     if (!response.ok) {
       throw new AppError(`AI service error: ${response.status} — ${response.text}`, 502, "AI_SERVICE_ERROR");

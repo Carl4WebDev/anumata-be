@@ -32,7 +32,7 @@ import { pickEvidenceFrames } from "./evidenceFrames.js";
 import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 
 // Local Python AI service (FastAPI on port 8001)
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
+import { AI_SERVICE_URL, aiServiceHeaders } from "../../../core/http/aiService.js";
 
 export default class EmotionAnalysisService {
   /**
@@ -110,7 +110,7 @@ export default class EmotionAnalysisService {
     // Call AI service /api/analyze — no time limit: long interviews take minutes.
     let mlResult;
     try {
-      const response = await postFormData(`${AI_SERVICE_URL}/api/analyze`, formData);
+      const response = await postFormData(`${AI_SERVICE_URL}/api/analyze`, formData, { headers: aiServiceHeaders() });
       if (!response.ok) {
         throw new AppError(`ML service error: ${response.text}`, 502, "ML_SERVICE_ERROR");
       }
@@ -276,6 +276,7 @@ export default class EmotionAnalysisService {
   async getProgress(token) {
     try {
       const response = await fetch(`${AI_SERVICE_URL}/api/analyze/progress/${encodeURIComponent(token)}`, {
+        headers: aiServiceHeaders(),
         signal: AbortSignal.timeout(3000),
       });
       if (!response.ok) return null;
@@ -357,9 +358,9 @@ export default class EmotionAnalysisService {
       };
     });
 
-    const aiUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
-    const response = await postJson(`${aiUrl}/api/longitudinal-report`, { sessions: sessionsPayload }, {
+    const response = await postJson(`${AI_SERVICE_URL}/api/longitudinal-report`, { sessions: sessionsPayload }, {
       timeoutMs: AI_REQUEST_TIMEOUT_MS,
+      headers: aiServiceHeaders(),
     });
 
     if (!response.ok) {

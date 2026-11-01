@@ -26,7 +26,7 @@ import notFoundHandler from "./core/middleware/notFoundHandler.js";
 import healthRoute from "./core/http/healthRoutes.js";
 import { sttLimiter, translateLimiter } from "./core/middleware/PublicApiRateLimiter.js";
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
+import { AI_SERVICE_URL, aiServiceHeaders } from "./core/http/aiService.js";
 const sttUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 dotenv.config();
@@ -88,6 +88,7 @@ app.post("/api/stt/transcribe", sttLimiter, sttUpload.single("file"), async (req
     if (["en", "tl", "ceb"].includes(language_hint)) formData.append("language_hint", language_hint);
     const response = await fetch(`${AI_SERVICE_URL}/api/stt/transcribe`, {
       method: "POST",
+      headers: aiServiceHeaders(),
       body: formData,
       signal: AbortSignal.timeout(60000),
     });
@@ -110,7 +111,7 @@ app.post("/api/ai/translate", translateLimiter, async (req, res, next) => {
     }
     const response = await fetch(`${AI_SERVICE_URL}/api/ai/translate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...aiServiceHeaders() },
       body: JSON.stringify({ text, target }),
       signal: AbortSignal.timeout(30000),
     });

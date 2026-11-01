@@ -36,7 +36,7 @@ const sttUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
 });
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
+import { AI_SERVICE_URL, aiServiceHeaders } from "../../../core/http/aiService.js";
 
 router.post("/stt/transcribe", sttLimiter, sttUpload.single("file"), async (req, res) => {
   try {
@@ -50,6 +50,7 @@ router.post("/stt/transcribe", sttLimiter, sttUpload.single("file"), async (req,
 
     const response = await fetch(`${AI_SERVICE_URL}/api/stt/transcribe`, {
       method: "POST",
+      headers: aiServiceHeaders(),
       body: formData,
       signal: AbortSignal.timeout(60000),
     });

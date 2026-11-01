@@ -1,6 +1,7 @@
 import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
 import { postJson } from "../../../core/http/httpPost.js";
+import { AI_SERVICE_URL, aiServiceHeaders } from "../../../core/http/aiService.js";
 import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 import { validateCreatePatient, validateUpdatePatient } from "./validators/patientValidator.js";
 import SessionRepo from "../../sessions/infrastructure/SessionRepo.js";
@@ -168,9 +169,9 @@ export default class PatientService {
     });
 
     // Call Python AI service
-    const aiUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
-    const response = await postJson(`${aiUrl}/api/longitudinal-report`, { sessions: sessionsPayload }, {
+    const response = await postJson(`${AI_SERVICE_URL}/api/longitudinal-report`, { sessions: sessionsPayload }, {
       timeoutMs: AI_REQUEST_TIMEOUT_MS,
+      headers: aiServiceHeaders(),
     });
 
     if (!response.ok) {

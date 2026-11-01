@@ -1,6 +1,6 @@
 import { describe, test, expect } from "vitest";
 import http from "node:http";
-import { postJson } from "../httpPost.js";
+import { postFormData, postJson } from "../httpPost.js";
 
 function serverReplyingAfter(ms, handler) {
   const server = http.createServer((req, res) => {
@@ -49,5 +49,53 @@ describe("postJson", () => {
     const err = await postJson(urlOf(server), {}, { timeoutMs: 200 }).catch((e) => e);
     server.close();
     expect(err.code).toBe("REQUEST_TIMEOUT");
+  });
+});
+
+describe("Modal's long-request redirect (303 → result URL)", () => {
+  /** First answers 303 to /result, then serves the result (to GET) — like Modal after 150 s. */
+  function modalLikeServer({ hops = 1, result = '{"ok":true}' } = {}) {
+    const seen = [];
+    const server = http.createServer((req, res) => {
+      const chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        seen.push({ method: req.method, url: req.url, key: req.headers["modal-key"], secret: req.headers["modal-secret"] });
+        const hop = seen.length;
+        if (hop <= hops) {
+          res.writeHead(303, { location: `/result?call=abc&hop=${hop}` });
+          return res.end();
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(result);
+      });
+    });
+    return new Promise((resolve) => server.listen(0, () => resolve({ server, seen })));
+  }
+  const auth = { "Modal-Key": "wk-123", "Modal-Secret": "ws-456" };
+
+  test("follows the redirect with GET and returns the final result", async () => {
+    const { server, seen } = await modalLikeServer({ hops: 2 });
+    const res = await postJson(urlOf(server) + "api/analyze", { a: 1 }, { headers: auth });
+    server.close();
+    expect(res).toEqual({ ok: true, status: 200, text: '{"ok":true}' });
+    expect(seen.map((s) => s.method)).toEqual(["POST", "GET", "GET"]);
+    expect(seen[1].url).toBe("/result?call=abc&hop=1");
+  });
+
+  test("sends the password headers on the first request and every redirect", async () => {
+    const { server, seen } = await modalLikeServer({ hops: 1 });
+    const form = new FormData();
+    form.append("x", "1");
+    await postFormData(urlOf(server), form, { headers: auth });
+    server.close();
+    expect(seen.every((s) => s.key === "wk-123" && s.secret === "ws-456")).toBe(true);
+  });
+
+  test("gives up after too many redirects instead of looping forever", async () => {
+    const { server } = await modalLikeServer({ hops: 1000 });
+    const err = await postJson(urlOf(server), {}).catch((e) => e);
+    server.close();
+    expect(err.code).toBe("TOO_MANY_REDIRECTS");
   });
 });

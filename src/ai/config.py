@@ -14,12 +14,17 @@ from pathlib import Path
 # =============================================================================
 
 AI_ROOT = Path(__file__).parent.resolve()
-MODELS_DIR = AI_ROOT / "models"
+# The trained models are too big for git. Locally they sit in ./models; on
+# Modal, MODELS_DIR points at the Volume they were uploaded to.
+MODELS_DIR = Path(os.environ.get("MODELS_DIR", AI_ROOT / "models"))
 
-FER_MODEL_PATH = MODELS_DIR / "fer_best_model.pth"
-SER_MODEL_PATH = MODELS_DIR / "ser_best_model.pt"
-LER_MODEL_PATH = MODELS_DIR / "ler_best_model.pt"
-CASCADE_PATH = MODELS_DIR / "haarcascade_frontalface_default.xml"
+# File names can be switched to a new version (e.g. SER_MODEL_FILE=ser_v2.pt)
+# without overwriting the old one, so a worse model can be rolled back.
+FER_MODEL_PATH = MODELS_DIR / os.environ.get("FER_MODEL_FILE", "fer_best_model.pth")
+SER_MODEL_PATH = MODELS_DIR / os.environ.get("SER_MODEL_FILE", "ser_best_model.pt")
+LER_MODEL_PATH = MODELS_DIR / os.environ.get("LER_MODEL_FILE", "ler_best_model.pt")
+# Small and committed to git, so it always ships with the code.
+CASCADE_PATH = AI_ROOT / "models" / "haarcascade_frontalface_default.xml"
 
 # =============================================================================
 # EMOTION LABELS
