@@ -25,7 +25,9 @@ import modal
 
 AI_DIR = Path(__file__).parent
 MODELS = "/models"  # where the Volume is mounted
-GPU = "L4"
+# In order of preference: when Modal has no free L4, use a T4 (cheaper, a bit slower)
+# or an A10 (a bit pricier) instead of waiting in line. All fit these models.
+GPU = ["L4", "T4", "A10"]
 OLLAMA_VERSION = "0.40.5"  # pinned on purpose: change deliberately, then redeploy
 OLLAMA_MODEL = "llama3.2:3b"
 WHISPER_MODEL = "large-v3"
