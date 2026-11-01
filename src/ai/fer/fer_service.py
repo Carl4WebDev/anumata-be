@@ -5,6 +5,7 @@ Uses EfficientNet-B0 via timm for inference.
 Detects faces with OpenCV Haar Cascade, classifies the largest face.
 """
 
+import io
 import time
 import logging
 
@@ -58,7 +59,11 @@ def _get_face_cascade():
     global _face_cascade
     if _face_cascade is None:
         _face_cascade = cv2.CascadeClassifier(str(CASCADE_PATH))
-        logger.info("Face cascade loaded from %s", CASCADE_PATH)
+        if _face_cascade.empty():
+            logger.error("Face cascade could NOT be loaded from %s — no faces will be found", CASCADE_PATH)
+        else:
+            logger.info("Face cascade loaded from %s", CASCADE_PATH)
+        logger.info("FER libraries: OpenCV %s, NumPy %s", cv2.__version__, np.__version__)
     return _face_cascade
 
 
@@ -86,9 +91,7 @@ def predict_emotion(image_bytes: bytes) -> dict:
     model = _get_model()
     cascade = _get_face_cascade()
 
-    # Decode image
-    np_arr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    img = _decode_image(image_bytes)
     if img is None:
         return _error_result("Failed to decode image", start)
 
@@ -141,6 +144,26 @@ def predict_emotion(image_bytes: bytes) -> dict:
         "probabilities": probabilities,
         "processing_time": round(time.time() - start, 4),
     }
+
+
+def _decode_image(image_bytes: bytes) -> np.ndarray | None:
+    """
+    Frame bytes → BGR image. OpenCV first; if its build can't read the file,
+    Pillow (also used below) as a fallback. Failures are logged, never silent.
+    """
+    img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if img is not None:
+        return img
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as pil:
+            rgb = np.array(pil.convert("RGB"))
+        logger.warning("FER: OpenCV could not decode a frame; used Pillow instead (%d bytes)", len(image_bytes))
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    except Exception as err:
+        logger.warning(
+            "FER: could not decode frame (%d bytes, starts %r): %s", len(image_bytes), image_bytes[:12], err
+        )
+        return None
 
 
 def _no_face_result(start: float) -> dict:
