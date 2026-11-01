@@ -1,10 +1,12 @@
 import { Router } from "express";
 import db from "../database/db.js";
+import { AI_SERVICE_URL, aiServiceHeaders } from "./aiService.js";
 
 const router = Router();
 
-import { AI_SERVICE_URL, aiServiceHeaders } from "./aiService.js";
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+// How long the Settings page waits for the AI's answer. Modal needs minutes
+// to wake a sleeping AI, so a slow answer means "starting", not "down".
+const AI_CHECK_MS = 5000;
 
 /**
  * Basic health check (DB only)
@@ -18,8 +20,24 @@ router.get("/health", async (req, res) => {
   }
 });
 
+let wakeInFlight = null;
+
 /**
- * Aggregated system health — checks DB, AI service, and Ollama
+ * The AI didn't answer in time: Modal is starting it. Let one request run to
+ * the end (no time limit), so the AI really wakes up instead of the check
+ * cancelling it every time.
+ */
+function wakeAiService() {
+  wakeInFlight ??= fetch(`${AI_SERVICE_URL}/health`, { headers: aiServiceHeaders() })
+    .catch(() => {})
+    .finally(() => {
+      wakeInFlight = null;
+    });
+}
+
+/**
+ * Aggregated system health — DB, the AI service, and Ollama (which runs inside
+ * the AI service on Modal, so the AI service reports its status).
  */
 router.get("/api/system/health", async (req, res) => {
   const result = {
@@ -30,7 +48,6 @@ router.get("/api/system/health", async (req, res) => {
     timestamp: new Date().toISOString(),
   };
 
-  // Database check
   try {
     await db.query("SELECT 1");
     result.database.status = "ok";
@@ -38,66 +55,38 @@ router.get("/api/system/health", async (req, res) => {
     result.database.status = "error";
   }
 
-  // AI service check (port 8001)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_CHECK_MS);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const aiRes = await fetch(`${AI_SERVICE_URL}/health`, {
-      headers: aiServiceHeaders(),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
+    const aiRes = await fetch(`${AI_SERVICE_URL}/health`, { headers: aiServiceHeaders(), signal: controller.signal });
     if (aiRes.ok) {
       const aiData = await aiRes.json();
-      result.ai_service.status = aiData.status || "ok";
       const loaded = aiData.models_loaded || {};
-      result.ai_service.models = {
-        fer: !!loaded.fer,
-        ser: !!loaded.ser,
-        ler: !!loaded.ler,
-        stt: !!loaded.stt,
+      result.ai_service = {
+        status: aiData.status || "ok",
+        models: { fer: !!loaded.fer, ser: !!loaded.ser, ler: !!loaded.ler, stt: !!loaded.stt },
       };
+      if (aiData.ollama) result.ollama = { status: aiData.ollama.status, model: aiData.ollama.model ?? null };
     } else {
-      result.ai_service.status = "error";
-    }
-  } catch {
-    result.ai_service.status = "unreachable";
-  }
-
-  // Ollama check (port 11434)
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const ollamaRes = await fetch(`${OLLAMA_URL}/api/tags`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (ollamaRes.ok) {
-      const ollamaData = await ollamaRes.json();
-      const models = ollamaData.models || [];
-      const reportModel = models.find((m) => m.name?.includes("llama") || m.name?.includes("qwen"));
-      result.ollama.status = reportModel ? "ok" : "model_missing";
-      result.ollama.model = reportModel?.name || null;
-    } else {
+      result.ai_service.status = "error"; // e.g. 401: wrong AI_SERVICE_KEY / AI_SERVICE_SECRET
       result.ollama.status = "error";
     }
-  } catch {
-    result.ollama.status = "unreachable";
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      result.ai_service.status = "starting";
+      result.ollama.status = "starting";
+      wakeAiService();
+    } else {
+      result.ai_service.status = "unreachable";
+      result.ollama.status = "unreachable";
+    }
+  } finally {
+    clearTimeout(timeout);
   }
 
-  const allOk =
-    result.database.status === "ok" &&
-    result.ai_service.status === "ok" &&
-    result.ollama.status === "ok";
-
-  res.status(allOk ? 200 : 207).json({
-    status: allOk ? "ok" : "degraded",
-    ...result,
-  });
+  const allOk = result.database.status === "ok" && result.ai_service.status === "ok" && result.ollama.status === "ok";
+  const status = allOk ? "ok" : result.ai_service.status === "starting" ? "starting" : "degraded";
+  res.status(allOk ? 200 : 207).json({ status, ...result });
 });
 
 export default router;

@@ -6,11 +6,13 @@ for the Express backend to call.
 Models are preloaded once at startup.
 """
 
+import json
 import logging
 import os
 import re
 import sys
 import time
+import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,7 +24,7 @@ from pydantic import BaseModel
 # Add AI root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import AI_SERVICE_HOST, AI_SERVICE_PORT
+from config import AI_SERVICE_HOST, AI_SERVICE_PORT, OLLAMA_BASE_URL
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,7 +121,19 @@ async def health():
     return {
         "status": "ok" if all(status.values()) else "degraded",
         "models_loaded": status,
+        "ollama": await run_in_threadpool(_ollama_status),
     }
+
+
+def _ollama_status() -> dict:
+    """Ollama (reports, translation, question-set AI) runs next to this service — on Modal, in the same container."""
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_BASE_URL}/api/tags", timeout=2) as response:
+            models = json.load(response).get("models", [])
+    except Exception:
+        return {"status": "unreachable", "model": None}
+    name = next((m.get("name") for m in models if any(k in (m.get("name") or "") for k in ("llama", "qwen"))), None)
+    return {"status": "ok" if name else "model_missing", "model": name}
 
 
 # =============================================================================
