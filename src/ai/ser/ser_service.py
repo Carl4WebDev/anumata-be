@@ -106,6 +106,27 @@ def _convert_to_wav(audio_bytes: bytes, filename: str) -> str:
     return tmp_out.name
 
 
+# How much of the answer to search for the patient's voice.
+SER_SCAN_SECONDS = 120.0
+# Quieter than this (vs. the loudest part) counts as the silence before / after speaking.
+SPEECH_TOP_DB = 35
+
+
+def speech_window(y: np.ndarray, sr: int) -> np.ndarray:
+    """
+    The SER_MAX_DURATION seconds of the answer the model should hear.
+
+    A recording starts before Amumata reads the question, and the mic is muted
+    while she speaks, so it opens with digital silence. Skip that (and any
+    quiet lead-in), start SER_OFFSET into the speech, and take the window.
+    """
+    if y.size == 0 or not np.any(y):
+        return y[:0]
+    voiced, _ = librosa.effects.trim(y, top_db=SPEECH_TOP_DB)
+    begin = int(SER_OFFSET * sr) if voiced.size > int((SER_OFFSET + SER_MAX_DURATION) * sr) else 0
+    return voiced[begin : begin + int(SER_MAX_DURATION * sr)]
+
+
 def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
     """
     Predict emotion from audio.
@@ -142,9 +163,9 @@ def predict_emotion(audio_bytes: bytes, filename: str = "audio.webm") -> dict:
             logger.warning("[SER] Audio too short (%.2fs < 1.0s), returning Neutral", info.duration)
             return _neutral_result("Audio too short", start, info=info)
 
-        # Load audio
-        y, sr = librosa.load(wav_path, sr=SER_SAMPLE_RATE, duration=SER_MAX_DURATION,
-                             offset=SER_OFFSET, mono=True)
+        # Load audio, then keep the part where the patient is speaking
+        y, sr = librosa.load(wav_path, sr=SER_SAMPLE_RATE, duration=SER_SCAN_SECONDS, mono=True)
+        y = speech_window(y, sr)
 
         # Silence detection
         rms = np.sqrt(np.mean(y ** 2))

@@ -29,6 +29,7 @@ MODELS = "/models"  # where the Volume is mounted
 # or an A10 (a bit pricier) instead of waiting in line. All fit these models.
 GPU = ["L4", "T4", "A10"]
 OLLAMA_VERSION = "0.40.5"  # pinned on purpose: change deliberately, then redeploy
+OPENCV_VERSION = "4.10.0.84"  # the version that works locally (face detection)
 OLLAMA_MODEL = "llama3.2:3b"
 WHISPER_MODEL = "large-v3"
 # Hugging Face base models the SER / LER heads are built on (see ser_service / ler_service).
@@ -43,6 +44,14 @@ image = (
     .apt_install("curl", "zstd", "ffmpeg", "libgl1", "libglib2.0-0")
     .run_commands(f"curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION={OLLAMA_VERSION} sh")
     .pip_install_from_requirements(str(AI_DIR / "requirements.txt"))
+    # One clean OpenCV. A mixed install (another package pulling a second OpenCV
+    # build) left cv2 without CascadeClassifier, so the face model saw nothing.
+    # The last command fails the build loudly if the face detector is missing.
+    .run_commands(
+        "pip uninstall -y opencv-python opencv-contrib-python opencv-python-headless opencv-contrib-python-headless",
+        f"pip install opencv-python-headless=={OPENCV_VERSION}",
+        "python -c \"import cv2; cv2.CascadeClassifier; print('OpenCV OK', cv2.__version__)\"",
+    )
     .env(
         {
             # Everything big lives in the Volume, downloaded once (download_models).
