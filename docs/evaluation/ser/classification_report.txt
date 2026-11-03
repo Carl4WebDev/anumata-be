@@ -1,0 +1,31 @@
+SER Evaluation Report
+============================================================
+
+Test Accuracy:  0.9054 (90.54%)
+Macro F1:       0.9052
+Weighted F1:    0.9056
+
+Per-class metrics:
+       Angry  P=0.9239  R=0.9239  F1=0.9239  n=289
+       Happy  P=0.9075  R=0.8854  F1=0.8963  n=288
+     Neutral  P=0.8536  R=0.9336  F1=0.8918  n=256
+         Sad  P=0.9373  R=0.8819  F1=0.9088  n=288
+
+              precision    recall  f1-score   support
+
+       Angry     0.9239    0.9239    0.9239       289
+       Happy     0.9075    0.8854    0.8963       288
+     Neutral     0.8536    0.9336    0.8918       256
+         Sad     0.9373    0.8819    0.9088       288
+
+    accuracy                         0.9054      1121
+   macro avg     0.9055    0.9062    0.9052      1121
+weighted avg     0.9070    0.9054    0.9056      1121
+
+
+Confusion Matrix:
+ True/Pred     Angry     Happy   Neutral       Sad
+     Angry       267        11         5         6
+     Happy        18       255        11         4
+   Neutral         3         7       239         7
+       Sad         1         8        25       254

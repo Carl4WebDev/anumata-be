@@ -80,6 +80,16 @@ export default class InterviewLinkService {
     return link;
   }
 
+  /**
+   * The link as the patient's interview page sees it, plus when their next
+   * appointment is — so the end of the interview can say what happens next.
+   */
+  async getPublicByToken(token) {
+    const link = await this.getByToken(token);
+    const nextAppointmentAt = await this.interviewLinkRepo.findNextAppointmentStart(link.patient_id, link.therapist_id);
+    return { ...link, next_appointment_at: nextAppointmentAt };
+  }
+
   async getAll(therapistId, { status, page = 1, limit = 20 } = {}) {
     const offset = (page - 1) * limit;
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { pickEvidenceFrames, MAX_STORED_FRAMES } from "../application/evidenceFrames.js";
+import { pickEvidenceFrames, summarizeFaceFrames, MAX_STORED_FRAMES } from "../application/evidenceFrames.js";
 
 const frames = (n) => Array.from({ length: n }, (_, i) => `img${i}`);
 const fer = (confidences) => confidences.map((confidence, frame_index) => ({ frame_index, emotion: "Sad", confidence }));
@@ -27,5 +27,28 @@ describe("pickEvidenceFrames", () => {
 
   test("no frames gives an empty list", () => {
     expect(pickEvidenceFrames([], [], 0)).toEqual([]);
+  });
+});
+
+describe("summarizeFaceFrames", () => {
+  const frame = (frame_index, emotion) => ({ frame_index, emotion, confidence: 0.5 });
+
+  test("counts each emotion over all frames and how often the reading changed", () => {
+    const summary = summarizeFaceFrames([frame(0, "Sad"), frame(1, "Sad"), frame(2, "Neutral"), frame(3, "Sad"), frame(4, "Happy")]);
+    expect(summary).toEqual({ analysed: 5, face_found: 5, counts: { Sad: 3, Neutral: 1, Happy: 1 }, changes: 3 });
+  });
+
+  test("frames with no face are counted as checked but not read", () => {
+    const summary = summarizeFaceFrames([frame(0, "NoFace"), frame(1, "Sad"), frame(2, "Unknown"), frame(3, "Sad")]);
+    expect(summary).toEqual({ analysed: 4, face_found: 2, counts: { Sad: 2 }, changes: 0 });
+  });
+
+  test("uses capture order, not the order results arrived in", () => {
+    expect(summarizeFaceFrames([frame(2, "Sad"), frame(0, "Sad"), frame(1, "Happy")]).changes).toBe(2);
+  });
+
+  test("no frames gives nothing", () => {
+    expect(summarizeFaceFrames([])).toBeNull();
+    expect(summarizeFaceFrames(undefined)).toBeNull();
   });
 });

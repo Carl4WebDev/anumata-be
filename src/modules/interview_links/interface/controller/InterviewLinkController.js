@@ -35,7 +35,7 @@ export const getInterviewLinks = asyncHandler(async (req, res) => {
 });
 
 export const getInterviewLinkByToken = asyncHandler(async (req, res) => {
-  const result = await service.getByToken(req.params.token);
+  const result = await service.getPublicByToken(req.params.token);
   return sendSuccess(res, {
     statusCode: 200,
     message: "Interview link fetched",

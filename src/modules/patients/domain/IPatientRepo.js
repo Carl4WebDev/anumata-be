@@ -19,6 +19,10 @@ export default class IPatientRepo {
     throw new Error("Not implemented");
   }
 
+  async hasRecords(id) {
+    throw new Error("Not implemented");
+  }
+
   async countByTherapistId(therapistId) {
     throw new Error("Not implemented");
   }

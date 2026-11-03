@@ -28,7 +28,9 @@ import AppError from "../../../core/errors/AppError.js";
 import NotFoundError from "../../../core/errors/NotFoundError.js";
 import { generateEmotionalEventReport } from "./EmotionEventReportGenerator.js";
 import { postFormData, postJson } from "../../../core/http/httpPost.js";
-import { pickEvidenceFrames } from "./evidenceFrames.js";
+import { pickEvidenceFrames, summarizeFaceFrames } from "./evidenceFrames.js";
+import { followUpAskedFields } from "./followUpsAsked.js";
+import { feelingsTappedFields } from "./feelingsTapped.js";
 import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 
 // Local Python AI service (FastAPI on port 8001)
@@ -53,7 +55,12 @@ export default class EmotionAnalysisService {
     );
   }
 
-  async analyzeByToken(token, files) {
+  /**
+   * `extras`: what the interview room adds — the patient's mood before / after
+   * (`selfReport`), which questions got their follow-up (`followUpsAsked`) and
+   * the feeling words tapped per question (`feelingsTapped`).
+   */
+  async analyzeByToken(token, files, { selfReport = null, followUpsAsked = new Set(), feelingsTapped = new Map() } = {}) {
     // Find interview link by token
     const link = await this.interviewLinkRepo.findByToken(token);
     if (!link) {
@@ -185,6 +192,9 @@ export default class EmotionAnalysisService {
         language_detected_confidence: q.language_probability || null,
         frame_image: questionFrames[bestIdx] || questionFrames[0] || null,
         evidence_frames: evidenceFrames.length > 0 ? evidenceFrames : null,
+        ...followUpAskedFields(questions[i], i, followUpsAsked),
+        ...feelingsTappedFields(i, feelingsTapped),
+        face_frames: summarizeFaceFrames(q.all_fer_results),
       };
     });
 
@@ -192,6 +202,7 @@ export default class EmotionAnalysisService {
     const emotionSummary = {
       distribution: mlResult.overall_distribution || {},
       indicators: mlResult.indicators || [],
+      ...(selfReport ? { self_report: selfReport } : {}),
     };
 
     // Build emotional_spikes

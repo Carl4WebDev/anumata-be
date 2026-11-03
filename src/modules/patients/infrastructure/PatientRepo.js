@@ -119,6 +119,18 @@ export default class PatientRepo extends IPatientRepo {
     return { deleted: true };
   }
 
+  /** Does the patient have any clinical records a delete would wipe out? */
+  async hasRecords(id) {
+    const result = await db.query(
+      `SELECT EXISTS (SELECT 1 FROM appointments WHERE patient_id = $1)
+           OR EXISTS (SELECT 1 FROM interview_links WHERE patient_id = $1)
+           OR EXISTS (SELECT 1 FROM sessions WHERE patient_id = $1)
+           OR EXISTS (SELECT 1 FROM follow_ups WHERE patient_id = $1) AS has_records`,
+      [id],
+    );
+    return result.rows[0].has_records === true;
+  }
+
   async countByTherapistId(therapistId) {
     const result = await db.query(
       `SELECT COUNT(*) as total FROM patients WHERE therapist_id = $1`,

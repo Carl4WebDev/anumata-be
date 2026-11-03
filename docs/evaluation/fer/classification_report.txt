@@ -1,0 +1,35 @@
+FER Evaluation Report
+============================================================
+
+Checkpoint: C:\Users\Admin\Desktop\projects\thesis\fer\outputs\checkpoints\best_model.pth
+Checkpoint Epoch: 14
+Checkpoint Val Acc: 61.49437486733178
+
+Test Accuracy:  0.6115 (61.15%)
+Macro F1:       0.5883
+Weighted F1:    0.6203
+
+Per-class metrics:
+       angry  P=0.5463  R=0.4634  F1=0.5014  n=1120
+       happy  P=0.8603  R=0.6617  F1=0.7480  n=2959
+     neutral  P=0.5488  R=0.6027  F1=0.5745  n=1913
+         sad  P=0.4556  R=0.6313  F1=0.5293  n=1725
+
+              precision    recall  f1-score   support
+
+       angry     0.5463    0.4634    0.5014      1120
+       happy     0.8603    0.6617    0.7480      2959
+     neutral     0.5488    0.6027    0.5745      1913
+         sad     0.4556    0.6313    0.5293      1725
+
+    accuracy                         0.6115      7717
+   macro avg     0.6028    0.5898    0.5883      7717
+weighted avg     0.6470    0.6115    0.6203      7717
+
+
+Confusion Matrix:
+ True/Pred     angry     happy   neutral       sad
+     angry       519        76       175       350
+     happy       183      1958       405       413
+   neutral        90       132      1153       538
+       sad       158       110       368      1089

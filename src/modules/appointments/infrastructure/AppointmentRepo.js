@@ -1,5 +1,10 @@
 import db from "../../../core/database/db.js";
 import AppError from "../../../core/errors/AppError.js";
+import {
+  PRE_SESSION_INTERVIEW_COLUMNS,
+  PRE_SESSION_INTERVIEW_JOIN,
+  withInterview,
+} from "../application/preSessionInterview.js";
 
 // PostgreSQL exclusion_violation — raised by appointments_no_overlap.
 const EXCLUSION_VIOLATION = "23P01";
@@ -14,10 +19,19 @@ const FOLLOW_UP_STATUS_ON_CLOSE = {
   cancelled: "recommended",
 };
 
+// Each appointment carries its pre-session interview (see preSessionInterview.js)
+// and, in a recurring series, its position ("3 of 8", cancelled sessions included).
 const APPOINTMENT_SELECT = `
-  SELECT a.*, TRIM(p.full_name) as patient_name
+  SELECT a.*, TRIM(p.full_name) as patient_name, ${PRE_SESSION_INTERVIEW_COLUMNS},
+         CASE WHEN a.series_id IS NULL THEN NULL ELSE
+           (SELECT COUNT(*)::int FROM appointments s WHERE s.series_id = a.series_id AND s.start_at <= a.start_at) END
+           AS series_index,
+         CASE WHEN a.series_id IS NULL THEN NULL ELSE
+           (SELECT COUNT(*)::int FROM appointments s WHERE s.series_id = a.series_id) END
+           AS series_total
   FROM appointments a
-  JOIN patients p ON p.patient_id = a.patient_id`;
+  JOIN patients p ON p.patient_id = a.patient_id
+  ${PRE_SESSION_INTERVIEW_JOIN}`;
 
 function slotConflict(err) {
   if (err.code === EXCLUSION_VIOLATION) {
@@ -25,6 +39,13 @@ function slotConflict(err) {
   }
   if (err.code === UNIQUE_VIOLATION && err.constraint === "appointments_one_scheduled_per_follow_up") {
     return new AppError("This follow-up already has a scheduled appointment.", 409, "FOLLOW_UP_ALREADY_BOOKED");
+  }
+  return err;
+}
+
+function sessionTypeConflict(err) {
+  if (err.code === UNIQUE_VIOLATION && err.constraint === "session_types_unique_active_name") {
+    return new AppError("You already have a session type with this name.", 409, "SESSION_TYPE_EXISTS");
   }
   return err;
 }
@@ -41,14 +62,73 @@ export default class AppointmentRepo {
     return rows[0];
   }
 
-  async updateSettings(therapistId, { slot_minutes }) {
+  /** Changes only the fields given (default session length and/or break). */
+  async updateSettings(therapistId, { slot_minutes = null, break_minutes = null }) {
+    await this.getOrCreateSettings(therapistId);
     const { rows } = await db.query(
-      `INSERT INTO appointment_settings (therapist_id, slot_minutes) VALUES ($1, $2)
-       ON CONFLICT (therapist_id) DO UPDATE SET slot_minutes = EXCLUDED.slot_minutes, updated_at = NOW()
+      `UPDATE appointment_settings
+       SET slot_minutes = COALESCE($2, slot_minutes),
+           break_minutes = COALESCE($3, break_minutes),
+           updated_at = NOW()
+       WHERE therapist_id = $1
        RETURNING *`,
-      [therapistId, slot_minutes],
+      [therapistId, slot_minutes, break_minutes],
     );
     return rows[0];
+  }
+
+  // ---------- session types ----------
+
+  async listSessionTypes(therapistId) {
+    const { rows } = await db.query(
+      `SELECT * FROM session_types WHERE therapist_id = $1 AND is_active ORDER BY duration_minutes, name`,
+      [therapistId],
+    );
+    return rows;
+  }
+
+  async findSessionType(therapistId, sessionTypeId) {
+    const { rows } = await db.query(
+      `SELECT * FROM session_types WHERE session_type_id = $1 AND therapist_id = $2 AND is_active`,
+      [sessionTypeId, therapistId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async createSessionType(therapistId, { name, duration_minutes }) {
+    try {
+      const { rows } = await db.query(
+        `INSERT INTO session_types (therapist_id, name, duration_minutes) VALUES ($1, $2, $3) RETURNING *`,
+        [therapistId, name, duration_minutes],
+      );
+      return rows[0];
+    } catch (err) {
+      throw sessionTypeConflict(err);
+    }
+  }
+
+  async updateSessionType(therapistId, sessionTypeId, { name = null, duration_minutes = null }) {
+    try {
+      const { rows } = await db.query(
+        `UPDATE session_types
+         SET name = COALESCE($3, name), duration_minutes = COALESCE($4, duration_minutes), updated_at = NOW()
+         WHERE session_type_id = $1 AND therapist_id = $2 AND is_active
+         RETURNING *`,
+        [sessionTypeId, therapistId, name, duration_minutes],
+      );
+      return rows[0] ?? null;
+    } catch (err) {
+      throw sessionTypeConflict(err);
+    }
+  }
+
+  async deactivateSessionType(therapistId, sessionTypeId) {
+    const { rowCount } = await db.query(
+      `UPDATE session_types SET is_active = false, updated_at = NOW()
+       WHERE session_type_id = $1 AND therapist_id = $2 AND is_active`,
+      [sessionTypeId, therapistId],
+    );
+    return rowCount > 0;
   }
 
   // ---------- working hours & blocked periods ----------
@@ -173,9 +253,19 @@ export default class AppointmentRepo {
     try {
       return await db.transaction(async (client) => {
         const { rows } = await client.query(
-          `INSERT INTO appointments (therapist_id, patient_id, follow_up_id, start_at, end_at, reason)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING appointment_id`,
-          [data.therapist_id, data.patient_id, data.follow_up_id ?? null, data.start_at, data.end_at, data.reason],
+          `INSERT INTO appointments
+             (therapist_id, patient_id, follow_up_id, start_at, end_at, reason, session_type_id, session_type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING appointment_id`,
+          [
+            data.therapist_id,
+            data.patient_id,
+            data.follow_up_id ?? null,
+            data.start_at,
+            data.end_at,
+            data.reason,
+            data.session_type_id ?? null,
+            data.session_type ?? null,
+          ],
         );
         const id = rows[0].appointment_id;
         await this.logEvent(client, id, "booked", data.reason);
@@ -185,6 +275,59 @@ export default class AppointmentRepo {
     } catch (err) {
       throw slotConflict(err);
     }
+  }
+
+  /**
+   * A recurring series in one transaction: every session or none (a clash on
+   * any date rolls them all back). The follow-up, if any, goes on the first session.
+   */
+  async createSeries({
+    series_id,
+    therapist_id,
+    patient_id,
+    follow_up_id,
+    reason,
+    duration_minutes,
+    session_type_id = null,
+    session_type = null,
+    starts,
+  }) {
+    try {
+      return await db.transaction(async (client) => {
+        const ids = [];
+        for (const [i, start] of starts.entries()) {
+          const followUpId = i === 0 ? (follow_up_id ?? null) : null;
+          const end = new Date(start.getTime() + duration_minutes * 60 * 1000);
+          const { rows } = await client.query(
+            `INSERT INTO appointments
+               (therapist_id, patient_id, follow_up_id, start_at, end_at, reason, series_id, session_type_id, session_type)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING appointment_id`,
+            [therapist_id, patient_id, followUpId, start, end, reason, series_id, session_type_id, session_type],
+          );
+          const id = rows[0].appointment_id;
+          await this.logEvent(client, id, "booked", `Session ${i + 1} of ${starts.length} (recurring)${reason ? ` — ${reason}` : ""}`);
+          if (followUpId) await this.markFollowUpBooked(client, followUpId, start);
+          ids.push(id);
+        }
+        // Read back only once every session exists, so each shows its full "n of total".
+        const created = [];
+        for (const id of ids) created.push(await this.findById(id, therapist_id, client));
+        return created;
+      });
+    } catch (err) {
+      throw slotConflict(err);
+    }
+  }
+
+  /** Scheduled sessions of a series from `fromStart` onwards (inclusive), in order. */
+  async findSeriesFrom(therapistId, seriesId, fromStart) {
+    const { rows } = await db.query(
+      `SELECT * FROM appointments
+       WHERE therapist_id = $1 AND series_id = $2 AND status = 'scheduled' AND start_at >= $3
+       ORDER BY start_at`,
+      [therapistId, seriesId, fromStart],
+    );
+    return rows;
   }
 
   /**
@@ -241,13 +384,52 @@ export default class AppointmentRepo {
     });
   }
 
+  /**
+   * completed | no_show | cancelled → scheduled again (undo). Its follow-up,
+   * if any, is booked again. The overlap / one-per-follow-up constraints
+   * reject it if the time or follow-up was rebooked meanwhile.
+   */
+  async reopenClosed(appointmentId, therapistId, fromStatus) {
+    try {
+      return await db.transaction(async (client) => {
+        const { rows } = await client.query(
+          `UPDATE appointments
+           SET status = 'scheduled', cancel_reason = NULL, updated_at = NOW()
+           WHERE appointment_id = $1 AND therapist_id = $2 AND status = $3
+           RETURNING follow_up_id, start_at`,
+          [appointmentId, therapistId, fromStatus],
+        );
+        if (rows.length === 0) return null;
+        await this.logEvent(client, appointmentId, "reopened", `Undid ${fromStatus.replace("_", "-")}`);
+        if (rows[0].follow_up_id) await this.markFollowUpBooked(client, rows[0].follow_up_id, rows[0].start_at);
+        return this.findById(appointmentId, therapistId, client);
+      });
+    } catch (err) {
+      throw slotConflict(err);
+    }
+  }
+
+  /** Scheduled appointments overlapping [from, to) — open-ended when `to` is omitted — with the patient's name. */
+  async findScheduled(therapistId, { from, to = null }) {
+    const { rows } = await db.query(
+      `SELECT a.appointment_id, TRIM(p.full_name) AS patient_name, a.start_at, a.end_at
+       FROM appointments a
+       JOIN patients p ON p.patient_id = a.patient_id
+       WHERE a.therapist_id = $1 AND a.status = 'scheduled'
+         AND a.end_at > $2 AND ($3::timestamptz IS NULL OR a.start_at < $3)
+       ORDER BY a.start_at`,
+      [therapistId, from, to],
+    );
+    return rows;
+  }
+
   async findById(appointmentId, therapistId, client = db) {
     const { rows } = await client.query(
       `${APPOINTMENT_SELECT}
        WHERE a.appointment_id = $1 AND a.therapist_id = $2`,
       [appointmentId, therapistId],
     );
-    return rows[0] ?? null;
+    return rows[0] ? withInterview(rows[0]) : null;
   }
 
   async list(therapistId, { status, patient_id, from, to, limit = 500 } = {}) {
@@ -269,7 +451,7 @@ export default class AppointmentRepo {
        LIMIT $${params.length}`,
       params,
     );
-    return rows;
+    return rows.map(withInterview);
   }
 
   async getEvents(appointmentId) {

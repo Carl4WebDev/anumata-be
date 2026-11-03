@@ -31,9 +31,9 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
 }
 
 /**
- * Generate candidate slot starts (UTC ms) across the horizon:
- * every slot_minutes inside each availability window, on its weekday,
- * starting at or after `notBeforeMs`.
+ * Generate candidate slot starts (UTC ms) across the horizon: sessions of
+ * slot_minutes laid back to back inside each availability window (with
+ * break_minutes between them), on its weekday, starting at or after `notBeforeMs`.
  */
 export function generateCandidateSlots({
   availability,
@@ -43,6 +43,7 @@ export function generateCandidateSlots({
   notBeforeMs,
 }) {
   const slotMs = settings.slot_minutes * 60 * 1000;
+  const stepMinutes = settings.slot_minutes + (settings.break_minutes ?? 0);
   const slots = [];
 
   // Iterate PH calendar days.
@@ -59,7 +60,7 @@ export function generateCandidateSlots({
     for (const window of windows) {
       const startMin = parseTimeToMinutes(window.start_time);
       const endMin = parseTimeToMinutes(window.end_time);
-      for (let min = startMin; min + settings.slot_minutes <= endMin; min += settings.slot_minutes) {
+      for (let min = startMin; min + settings.slot_minutes <= endMin; min += stepMinutes) {
         const slotStart = toUtcMsFromPhWall(year, month, day, Math.floor(min / 60), min % 60);
         const slotEnd = slotStart + slotMs;
         if (slotStart >= notBeforeMs && slotEnd <= horizonEndMs) {
@@ -74,16 +75,17 @@ export function generateCandidateSlots({
 
 /**
  * Free slots = candidates minus unavailable ranges minus active appointments
- * (any status holding a slot). Returns ascending UTC ms.
+ * (any status holding a slot). A booked appointment also keeps `breakMs` free
+ * on both sides of it. Returns ascending UTC ms.
  */
-export function computeFreeSlots({ candidates, unavailableRanges, busyRanges, slotMs }) {
+export function computeFreeSlots({ candidates, unavailableRanges, busyRanges, slotMs, breakMs = 0 }) {
   const free = candidates.filter((start) => {
     const end = start + slotMs;
     const blockedByUnavailable = unavailableRanges.some((r) =>
       rangesOverlap(start, end, r.startMs, r.endMs),
     );
     const blockedByBusy = busyRanges.some((r) =>
-      rangesOverlap(start, end, r.startMs, r.endMs),
+      rangesOverlap(start, end, r.startMs - breakMs, r.endMs + breakMs),
     );
     return !blockedByUnavailable && !blockedByBusy;
   });
@@ -103,19 +105,52 @@ export function phDateOf(utcMs) {
 }
 
 /**
- * Free slot starts (UTC ms) on one Manila calendar day: working-hour slots,
- * not before `notBeforeMs`, minus blocked periods and booked appointments.
+ * Free slot starts (UTC ms) on one Manila calendar day for a session of
+ * `slotMinutes`: working-hour slots, not before `notBeforeMs`, minus blocked
+ * periods and booked appointments (plus the break after each).
  */
-export function freeSlotsForDay({ availability, slotMinutes, dateStr, notBeforeMs, unavailableRanges, busyRanges }) {
+export function freeSlotsForDay({
+  availability,
+  slotMinutes,
+  breakMinutes = 0,
+  dateStr,
+  notBeforeMs,
+  unavailableRanges,
+  busyRanges,
+}) {
   const { startMs, endMs } = phDayRange(dateStr);
   const candidates = generateCandidateSlots({
     availability,
-    settings: { slot_minutes: slotMinutes },
+    settings: { slot_minutes: slotMinutes, break_minutes: breakMinutes },
     horizonStartMs: startMs,
     horizonEndMs: endMs,
     notBeforeMs: Math.max(notBeforeMs, startMs),
   });
-  return computeFreeSlots({ candidates, unavailableRanges, busyRanges, slotMs: slotMinutes * 60 * 1000 });
+  return computeFreeSlots({
+    candidates,
+    unavailableRanges,
+    busyRanges,
+    slotMs: slotMinutes * 60 * 1000,
+    breakMs: breakMinutes * 60 * 1000,
+  });
+}
+
+/**
+ * Does [startMs, endMs) fit entirely inside one working-hour window on its
+ * Manila weekday? Used to warn when new hours would leave a booked
+ * appointment outside them.
+ */
+export function isWithinHours(startMs, endMs, availability) {
+  const weekday = phWeekdayOf(startMs);
+  const dayStartMs = phDayRange(phDateOf(startMs)).startMs;
+  const startMin = (startMs - dayStartMs) / 60000;
+  const endMin = (endMs - dayStartMs) / 60000;
+  return availability.some(
+    (w) =>
+      w.weekday === weekday &&
+      parseTimeToMinutes(w.start_time) <= startMin &&
+      endMin <= parseTimeToMinutes(w.end_time),
+  );
 }
 
 /** Convert raw rows to the {startMs, endMs} shape the filters expect. */

@@ -25,6 +25,9 @@ import { createJobRegistry } from "../../../../core/jobs/jobRegistry.js";
 import { createStagingStore, mergeFiles, STAGED_NAME } from "../../application/analysisStaging.js";
 import AppError from "../../../../core/errors/AppError.js";
 import ValidationError from "../../../../core/errors/ValidationError.js";
+import { parseSelfReport } from "../../application/selfReport.js";
+import { parseFollowUpsAsked } from "../../application/followUpsAsked.js";
+import { parseFeelingsTapped } from "../../application/feelingsTapped.js";
 
 const interviewLinkRepo = new InterviewLinkRepo();
 const sessionRepo = new SessionRepo();
@@ -82,7 +85,13 @@ export const analyzeInterview = asyncHandler(async (req, res) => {
   // Long interviews take minutes to analyse: run it as a background job and
   // answer at once. The patient's page polls GET .../analysis-status.
   await emotionService.assertLink(token);
-  const { started } = analysisJobs.start(token, () => emotionService.analyzeByToken(token, files));
+  // Optional extras from the interview room: mood before / after, follow-ups asked, feeling words tapped.
+  const extras = {
+    selfReport: parseSelfReport(req.body?.self_report),
+    followUpsAsked: parseFollowUpsAsked(req.body?.follow_ups_asked),
+    feelingsTapped: parseFeelingsTapped(req.body?.feelings_tapped),
+  };
+  const { started } = analysisJobs.start(token, () => emotionService.analyzeByToken(token, files, extras));
   staging.clear(token); // the job holds the files now
   return sendSuccess(res, {
     statusCode: 202,

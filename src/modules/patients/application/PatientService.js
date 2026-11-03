@@ -97,6 +97,16 @@ export default class PatientService {
       throw new AppError("Access denied", 403, "FORBIDDEN");
     }
 
+    // Deleting cascades to appointments, interviews, AI results and follow-ups.
+    // A patient with any of those is archived instead, so the clinical history is kept.
+    if (await this.patientRepository.hasRecords(patientId)) {
+      throw new AppError(
+        "This patient has appointments, interviews or follow-ups. Archive the patient instead to keep their history.",
+        409,
+        "PATIENT_HAS_RECORDS",
+      );
+    }
+
     return this.patientRepository.remove(patientId);
   }
 

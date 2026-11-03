@@ -45,13 +45,19 @@ export default class InterviewLinkRepo extends IInterviewLinkRepo {
     // Try to load snapshots first (new system)
     const snapshots = await this.findSnapshotsByToken(token);
     if (snapshots.length > 0) {
-      link.questions = snapshots.map((s) => ({
-        text: s.question_text,
-        order: s.display_order,
-        source_type: s.source_type,
-        source_id: s.source_id,
-        snapshot_version: s.snapshot_version,
-      }));
+      // Follow-ups live on the question set's questions; carry them over by matching text.
+      const setQuestions = Array.isArray(link.questions) ? link.questions : [];
+      link.questions = snapshots.map((s) => {
+        const followUp = setQuestions.find((q) => q?.text === s.question_text)?.follow_up;
+        return {
+          text: s.question_text,
+          order: s.display_order,
+          source_type: s.source_type,
+          source_id: s.source_id,
+          snapshot_version: s.snapshot_version,
+          ...(followUp ? { follow_up: followUp } : {}),
+        };
+      });
       link._from_snapshots = true;
     }
     // else: link.questions is already set from qs.questions via JOIN
@@ -177,5 +183,17 @@ export default class InterviewLinkRepo extends IInterviewLinkRepo {
       [token],
     );
     return result.rows;
+  }
+
+  /** Start of the patient's next scheduled appointment with this therapist, or null. */
+  async findNextAppointmentStart(patientId, therapistId) {
+    const result = await db.query(
+      `SELECT start_at FROM appointments
+       WHERE patient_id = $1 AND therapist_id = $2 AND status = 'scheduled' AND start_at > NOW()
+       ORDER BY start_at
+       LIMIT 1`,
+      [patientId, therapistId],
+    );
+    return result.rows[0]?.start_at ?? null;
   }
 }

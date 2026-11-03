@@ -11,7 +11,8 @@
     "migrate": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
     "migrate:create": "node-pg-migrate create",
-    "migrate:up": "node-pg-migrate up"
+    "migrate:up": "node-pg-migrate up",
+    "eval:self-report": "node scripts/evaluate-self-report.mjs"
   },
   "keywords": [],
   "author": "",

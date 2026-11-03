@@ -26,3 +26,25 @@ export function pickEvidenceFrames(frames, ferResults, bestIdx, max = MAX_STORED
 
   return withFer.filter((f) => kept.has(f.i)).map(({ i, ...frame }) => frame);
 }
+
+const NOT_A_FACE_READING = new Set(["NoFace", "Unknown"]);
+
+/**
+ * What the AI saw across every frame of one answer (all frames, not only the
+ * stored ones): how many were checked, in how many it found a face, how often
+ * each emotion was read, and how many times the reading changed.
+ *
+ * @param {{ frame_index: number, emotion?: string }[]} ferResults
+ * @returns {{ analysed: number, face_found: number, counts: Record<string, number>, changes: number } | null}
+ */
+export function summarizeFaceFrames(ferResults) {
+  if (!Array.isArray(ferResults) || ferResults.length === 0) return null;
+  const readings = [...ferResults]
+    .sort((a, b) => a.frame_index - b.frame_index)
+    .map((r) => r.emotion)
+    .filter((emotion) => emotion && !NOT_A_FACE_READING.has(emotion));
+  const counts = {};
+  for (const emotion of readings) counts[emotion] = (counts[emotion] || 0) + 1;
+  const changes = readings.filter((emotion, i) => i > 0 && emotion !== readings[i - 1]).length;
+  return { analysed: ferResults.length, face_found: readings.length, counts, changes };
+}

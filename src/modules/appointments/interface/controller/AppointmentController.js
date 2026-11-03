@@ -46,6 +46,11 @@ export const markNoShow = asyncHandler(async (req, res) => {
   return sendSuccess(res, { statusCode: 200, message: "Appointment recorded as no-show", data: result });
 });
 
+export const undoOutcome = asyncHandler(async (req, res) => {
+  const result = await appointmentService.undoOutcome(req.user.id, parseId(req.params.id));
+  return sendSuccess(res, { statusCode: 200, message: "Appointment back to scheduled", data: result });
+});
+
 export const getFreeSlots = asyncHandler(async (req, res) => {
   const result = await appointmentService.getFreeSlots(req.user.id, req.query);
   return sendSuccess(res, { statusCode: 200, message: "Free slots fetched", data: result });
@@ -64,7 +69,9 @@ export const updateSettings = asyncHandler(async (req, res) => {
 });
 
 export const setAvailability = asyncHandler(async (req, res) => {
-  const result = await appointmentService.setAvailability(req.user.id, req.body?.windows);
+  const result = await appointmentService.setAvailability(req.user.id, req.body?.windows, {
+    confirm: req.body?.confirm === true,
+  });
   return sendSuccess(res, { statusCode: 200, message: "Working hours updated", data: result });
 });
 
@@ -76,4 +83,19 @@ export const addUnavailable = asyncHandler(async (req, res) => {
 export const removeUnavailable = asyncHandler(async (req, res) => {
   const result = await appointmentService.removeUnavailable(req.user.id, parseId(req.params.id));
   return sendSuccess(res, { statusCode: 200, message: "Blocked period removed", data: result });
+});
+
+export const createSessionType = asyncHandler(async (req, res) => {
+  const result = await appointmentService.createSessionType(req.user.id, req.body);
+  return sendSuccess(res, { statusCode: 201, message: "Session type added", data: result });
+});
+
+export const updateSessionType = asyncHandler(async (req, res) => {
+  const result = await appointmentService.updateSessionType(req.user.id, parseId(req.params.id), req.body);
+  return sendSuccess(res, { statusCode: 200, message: "Session type updated", data: result });
+});
+
+export const removeSessionType = asyncHandler(async (req, res) => {
+  const result = await appointmentService.removeSessionType(req.user.id, parseId(req.params.id));
+  return sendSuccess(res, { statusCode: 200, message: "Session type removed", data: result });
 });

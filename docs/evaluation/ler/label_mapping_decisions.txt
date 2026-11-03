@@ -1,0 +1,92 @@
+MAPPING REVISION REPORT
+============================================================
+
+Decision table for questionable labels identified by the dataset audit.
+
+Original Label     Current Mapping    Recommendation Action    
+------------------------------------------------------------
+annoyance          angry              KEEP         KEEP ✓
+approval           happy              KEEP         KEEP ✓
+confusion          neutral            REMOVE       REMOVE ✓
+disapproval        angry              KEEP         KEEP ✓
+disgust            angry              KEEP         KEEP ✓
+embarrassment      sad                KEEP         KEEP ✓
+fear               sad                KEEP         KEEP ✓
+realization        NONE (not mapped)  REMOVE       REMOVE ✓
+remorse            sad                KEEP         KEEP ✓
+surprise           neutral            REMOVE       REMOVE ✓
+
+
+DETAILED JUSTIFICATIONS
+============================================================
+
+--- annoyance ---
+  Current mapping : angry
+  Action          : KEEP
+  Justification   : GoEmotions defines annoyance as 'mild irritation'. Sample texts confirm irritation language ('This is so frustrating', 'That bugs me'). Annoyance is a lower-intensity anger variant. The Angry cluster intentionally groups anger-family emotions. Mapping is semantically sound.
+
+--- approval ---
+  Current mapping : happy
+  Action          : KEEP
+  Justification   : GoEmotions defines approval as 'favorable opinion'. Sample texts show positive sentiment ('That's a great idea', 'Well done'). While not identical to joy, approval consistently carries positive valence that aligns with Happy. Mapping is directionally correct.
+
+--- confusion ---
+  Current mapping : neutral
+  Action          : REMOVE
+  Justification   : GoEmotions defines confusion as 'a state of being bewildered or unclear'. Sample texts show uncertainty ('I don't understand why this happened') which lacks the emotional valence needed for Neutral. Neutral should be emotionally flat, not cognitively uncertain. Discarding avoids contaminating Neutral with non-emotional cognitive states.
+
+--- disapproval ---
+  Current mapping : angry
+  Action          : KEEP
+  Justification   : GoEmotions defines disapproval as 'unfavorable opinion'. Sample texts show negative judgment ('That's wrong', 'I disagree with this approach'). While milder than anger, disapproval consistently carries negative valence aligned with the Angry cluster. Acceptable mapping.
+
+--- disgust ---
+  Current mapping : angry
+  Action          : KEEP
+  Justification   : GoEmotions defines disgust as 'strong aversion'. Sample texts show revulsion ('That's disgusting', 'I can't stand it'). Disgust is a negative rejection emotion that aligns with the Angry cluster's 'rejection/disapproval' theme. Mapping is acceptable, though disgust could arguably be its own category in a finer-grained system.
+
+--- embarrassment ---
+  Current mapping : sad
+  Action          : KEEP
+  Justification   : GoEmotions defines embarrassment as 'self-conscious discomfort'. Sample texts show shame-adjacent language ('I can't believe I did that', 'So humiliating'). Embarrassment is a self-directed negative emotion that aligns with Sad. While mild, the valence is consistently negative. Acceptable mapping.
+
+--- fear ---
+  Current mapping : sad
+  Action          : KEEP
+  Justification   : GoEmotions defines fear as 'anticipation of danger'. Sample texts show anxiety and dread ('I'm scared something bad will happen', 'That terrifies me'). Fear is a strongly negative emotion. While distinct from sadness, our 4-class system groups all negative non-anger emotions under Sad. Mapping is consistent with the schema.
+
+--- realization ---
+  Current mapping : NONE (not mapped)
+  Action          : REMOVE
+  Justification   : GoEmotions defines realization as 'sudden understanding or awareness'. This is a cognitive state, not an emotion. It has no natural mapping to any of the 4 target emotions. Samples are already being discarded by prepare_datasets.py since it is absent from GOEMOTIONS_MAP. Confirming removal.
+
+--- remorse ---
+  Current mapping : sad
+  Action          : KEEP
+  Justification   : GoEmotions defines remorse as 'deep regret for wrongdoing'. Sample texts show genuine sadness/regret ('I wish I hadn't done that', 'I feel terrible about it'). Remorse maps cleanly to the Sad cluster as a guilt-related sadness. Mapping is correct.
+
+--- surprise ---
+  Current mapping : neutral
+  Action          : REMOVE
+  Justification   : GoEmotions defines surprise as 'sudden feeling of wonder'. Surprise can be positive (happy surprise) or negative (shock). Mapping to Neutral forces a valence-free label onto a potentially valenced emotion. Sample texts include both positive and negative surprises. Discarding rather than misclassifying.
+
+
+REMOVED SAMPLES BY LABEL
+============================================================
+
+  confusion (1,535 samples removed)
+    "Demographics? I don’t know anybody under 35 who has cable tv."
+    "Maybe that’s what happened to the great white at Houston zoo"
+    "I never thought it was at the same moment, but sometimes after [NAME] sacrifice... sounds logical"
+    "All sounds possible except the key, I can't see how it was missed in the first search."
+    "What does FPTP have to do with the referendum?"
+    ... and 1530 more
+
+  surprise (1,648 samples removed)
+    "OmG pEyToN iSn'T gOoD eNoUgH tO hElP uS iN tHe PlAyOfFs! Dumbass Broncos fans circa December 2015."
+    "Wow. I just read the synopsis, and that’s really what happens."
+    "My [NAME]! This isnt a vaccine! It's a jello shot!"
+    "I've never been there before so I can't confirm or deny but I would be really surprised if a casino "
+    "Here did you know that [NAME] slept with 35,000 women. Outrageous."
+    ... and 1643 more
+

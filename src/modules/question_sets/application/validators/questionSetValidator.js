@@ -1,5 +1,26 @@
 import ValidationError from "../../../../core/errors/ValidationError.js";
 
+export const MAX_FOLLOW_UP_LENGTH = 300;
+
+/**
+ * Optional therapist-written follow-up for one question ("What did that feel
+ * like for you?"), asked once in the interview when the answer is short.
+ * Returns `{ follow_up }` to spread into the question, or {} when there is none.
+ */
+function followUpOf(q, i, questionErrors) {
+  if (typeof q !== "object" || q === null || q.follow_up === undefined || q.follow_up === null) return {};
+  if (typeof q.follow_up !== "string") {
+    questionErrors.push(`Question ${i + 1}: follow-up must be text`);
+    return {};
+  }
+  const followUp = q.follow_up.trim();
+  if (followUp.length > MAX_FOLLOW_UP_LENGTH) {
+    questionErrors.push(`Question ${i + 1}: follow-up must not exceed ${MAX_FOLLOW_UP_LENGTH} characters`);
+    return {};
+  }
+  return followUp ? { follow_up: followUp } : {};
+}
+
 export function validateQuestionSet({ name, description, questions }) {
   const errors = {};
 
@@ -26,12 +47,14 @@ export function validateQuestionSet({ name, description, questions }) {
 
     questions.forEach((q, i) => {
       const text = typeof q === "string" ? q.trim() : q?.text?.trim();
+      const followUp = followUpOf(q, i, questionErrors);
       if (!text) {
         questionErrors.push(`Question ${i + 1}: text is required`);
       } else {
         normalized.push({
           text,
           order: typeof q === "object" && q?.order !== undefined ? q.order : i,
+          ...followUp,
         });
       }
     });
@@ -95,10 +118,13 @@ export function validateQuestionSetUpdate({ name, description, questions }) {
     } else if (questions.length > 20) {
       errors.questions = "Maximum 20 questions allowed";
     } else {
+      const questionErrors = [];
       data.questions = questions.map((q, i) => ({
         text: typeof q === "string" ? q.trim() : q.text?.trim(),
         order: typeof q === "string" ? i : (q.order || i),
+        ...followUpOf(q, i, questionErrors),
       }));
+      if (questionErrors.length > 0) errors.questions = questionErrors;
     }
   }
 

@@ -1,0 +1,39 @@
+FINAL DATASET STATISTICS
+============================================================
+
+DATASET CONTRIBUTION
+----------------------------------------
+  dair_ai        :  19,234  ( 27.5%)
+  goemotions     :  50,634  ( 72.5%)
+  TOTAL          :  69,868
+
+EMOTION DISTRIBUTION (ALL DATA)
+----------------------------------------
+  Angry       :  10,148  ( 14.5%)
+  Happy       :  31,576  ( 45.2%)
+  Neutral     :  15,972  ( 22.9%)
+  Sad         :  12,172  ( 17.4%)
+
+TRAIN / VALIDATION / TEST SPLITS
+----------------------------------------
+  Train:       55,894
+  Validation:   6,987
+  Test:         6,987
+  Total:       69,868
+
+TRAIN SET EMOTION DISTRIBUTION
+----------------------------------------
+  Angry       :   8,082  ( 14.5%)
+  Happy       :  25,360  ( 45.4%)
+  Neutral     :  12,671  ( 22.7%)
+  Sad         :   9,781  ( 17.5%)
+
+PREPROCESSING SUMMARY
+----------------------------------------
+  dair_ai        :  20,000 ->  19,234
+  goemotions     :  54,263 ->  50,634
+
+  Duplicates removed:         319
+  Conflicts removed:            0
+  Questionable removed:     3,183
+  Total removed:            3,502

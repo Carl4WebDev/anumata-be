@@ -56,8 +56,37 @@ export function validateBookAppointment(data) {
     followUpId = parsePositiveInt(data.follow_up_id);
     if (!followUpId) errors.push("follow_up_id must be a positive integer.");
   }
+  const repeat = parseRepeat(data?.repeat, errors);
+  const sessionTypeId = parseSessionTypeId(data?.session_type_id, errors);
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, data: { patient_id: patientId, start_at: startAt, reason, follow_up_id: followUpId } };
+  return {
+    ok: true,
+    data: {
+      patient_id: patientId,
+      start_at: startAt,
+      reason,
+      follow_up_id: followUpId,
+      session_type_id: sessionTypeId,
+      repeat,
+      skip_unavailable: data?.skip_unavailable === true,
+    },
+  };
+}
+
+export const REPEAT_EVERY_WEEKS = [1, 2];
+export const REPEAT_MIN_SESSIONS = 2;
+export const REPEAT_MAX_SESSIONS = 12;
+
+/** Optional { every_weeks: 1 | 2, count: 2–12 } — a recurring series; null for a single appointment. */
+function parseRepeat(repeat, errors) {
+  if (repeat === undefined || repeat === null) return null;
+  const everyWeeks = Number(repeat.every_weeks);
+  const count = Number(repeat.count);
+  if (!REPEAT_EVERY_WEEKS.includes(everyWeeks)) errors.push("Repeat must be every week or every 2 weeks.");
+  if (!Number.isInteger(count) || count < REPEAT_MIN_SESSIONS || count > REPEAT_MAX_SESSIONS) {
+    errors.push(`A series must have ${REPEAT_MIN_SESSIONS}–${REPEAT_MAX_SESSIONS} sessions.`);
+  }
+  return { every_weeks: everyWeeks, count };
 }
 
 /** Editing: new time and/or reason. At least one must be present. */
@@ -71,7 +100,10 @@ export function validateUpdateAppointment(data) {
   return { ok: true, data: out };
 }
 
-/** Slot lookup: a Manila calendar date, optionally ignoring one appointment (when rescheduling it). */
+/**
+ * Slot lookup: a Manila calendar date, optionally ignoring one appointment
+ * (when rescheduling it) and for a session type's length.
+ */
 export function validateSlotQuery(query) {
   const errors = [];
   const date = query?.date;
@@ -83,8 +115,9 @@ export function validateSlotQuery(query) {
     excludeId = parsePositiveInt(query.exclude);
     if (!excludeId) errors.push("exclude must be an appointment id.");
   }
+  const sessionTypeId = parseSessionTypeId(query?.session_type_id, errors);
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, data: { date, excludeId } };
+  return { ok: true, data: { date, excludeId, sessionTypeId } };
 }
 
 export function validateListQuery(query) {
@@ -115,11 +148,14 @@ export function parseAppointmentId(value) {
   return { ok: true, data: id };
 }
 
+/** scope: "one" (default) or "following" — this and every later session of its series. */
 export function validateCancel(data) {
   const errors = [];
   const reason = parseReason(data?.reason, errors);
+  const scope = data?.scope ?? "one";
+  if (!["one", "following"].includes(scope)) errors.push("scope must be 'one' or 'following'.");
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, data: { reason } };
+  return { ok: true, data: { reason, scope } };
 }
 
 /** completed / no_show require the appointment time to have started. */
@@ -183,12 +219,61 @@ export function validateUnavailableRange(data) {
   return { ok: true, data: { start_at: new Date(startAt), end_at: new Date(endAt), reason } };
 }
 
+export const MIN_SESSION_MINUTES = 15;
+export const MAX_SESSION_MINUTES = 240;
+export const MAX_BREAK_MINUTES = 30;
+const MAX_SESSION_TYPE_NAME = 60;
+
+function isSessionLength(value) {
+  return Number.isInteger(value) && value >= MIN_SESSION_MINUTES && value <= MAX_SESSION_MINUTES;
+}
+
+const SESSION_LENGTH_ERROR = `Session length must be a whole number of minutes between ${MIN_SESSION_MINUTES} and ${MAX_SESSION_MINUTES}.`;
+
+/** Default session length and/or the break kept after each session. At least one must be present. */
 export function validateSettings(data) {
-  const value = Number(data?.slot_minutes);
-  if (!Number.isInteger(value) || value < 15 || value > 240) {
-    return { ok: false, errors: ["Session length must be a whole number of minutes between 15 and 240."] };
+  const errors = [];
+  const out = {};
+  if (data?.slot_minutes !== undefined) {
+    out.slot_minutes = Number(data.slot_minutes);
+    if (!isSessionLength(out.slot_minutes)) errors.push(SESSION_LENGTH_ERROR);
   }
-  return { ok: true, data: { slot_minutes: value } };
+  if (data?.break_minutes !== undefined) {
+    out.break_minutes = Number(data.break_minutes);
+    if (!Number.isInteger(out.break_minutes) || out.break_minutes < 0 || out.break_minutes > MAX_BREAK_MINUTES) {
+      errors.push(`Break must be a whole number of minutes between 0 and ${MAX_BREAK_MINUTES}.`);
+    }
+  }
+  if (errors.length === 0 && Object.keys(out).length === 0) errors.push("Nothing to update.");
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, data: out };
+}
+
+/** A therapist's session type: a name and its length. `partial` allows changing just one of them. */
+export function validateSessionType(data, { partial = false } = {}) {
+  const errors = [];
+  const out = {};
+  if (!partial || data?.name !== undefined) {
+    const name = typeof data?.name === "string" ? data.name.trim() : "";
+    if (!name) errors.push("A name is required.");
+    else if (name.length > MAX_SESSION_TYPE_NAME) errors.push(`Name must be ${MAX_SESSION_TYPE_NAME} characters or fewer.`);
+    out.name = name;
+  }
+  if (!partial || data?.duration_minutes !== undefined) {
+    out.duration_minutes = Number(data?.duration_minutes);
+    if (!isSessionLength(out.duration_minutes)) errors.push(SESSION_LENGTH_ERROR);
+  }
+  if (errors.length === 0 && Object.keys(out).length === 0) errors.push("Nothing to update.");
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, data: out };
+}
+
+/** Optional session type id (booking, slot lookup): null when absent. */
+function parseSessionTypeId(value, errors) {
+  if (value === undefined || value === null || value === "") return null;
+  const id = parsePositiveInt(value);
+  if (!id) errors.push("session_type_id must be a positive integer.");
+  return id;
 }
 
 export function assertValid(result) {
