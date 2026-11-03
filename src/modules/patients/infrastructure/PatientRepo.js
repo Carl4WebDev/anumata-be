@@ -5,10 +5,22 @@ export default class PatientRepo extends IPatientRepo {
   async create(patient) {
     const fullName = `${patient.f_name} ${patient.m_name ? patient.m_name + " " : ""}${patient.l_name}`.trim();
     const result = await db.query(
-      `INSERT INTO patients (therapist_id, f_name, m_name, l_name, full_name, age, gender, primary_concern)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING patient_id, therapist_id, f_name, m_name, l_name, age, gender, primary_concern, profile_image, is_archived, archived_at, created_at`,
-      [patient.therapist_id, patient.f_name, patient.m_name || null, patient.l_name, fullName, patient.age, patient.gender, patient.primary_concern],
+      `INSERT INTO patients (therapist_id, f_name, m_name, l_name, full_name, age, gender, primary_concern, contact_number, email, reminder_consent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING patient_id, therapist_id, f_name, m_name, l_name, age, gender, primary_concern, contact_number, email, reminder_consent, profile_image, is_archived, archived_at, created_at`,
+      [
+        patient.therapist_id,
+        patient.f_name,
+        patient.m_name || null,
+        patient.l_name,
+        fullName,
+        patient.age,
+        patient.gender,
+        patient.primary_concern,
+        patient.contact_number ?? null,
+        patient.email ?? null,
+        patient.reminder_consent === true,
+      ],
     );
 
     return { ...result.rows[0], session_count: 0, risk_level: null, last_interview: null };
@@ -26,6 +38,7 @@ export default class PatientRepo extends IPatientRepo {
   async findById(id) {
     const result = await db.query(
       `SELECT p.patient_id, p.therapist_id, p.f_name, p.m_name, p.l_name, p.age, p.gender, p.primary_concern,
+              p.contact_number, p.email, p.reminder_consent,
               p.profile_image, p.is_archived, p.archived_at,
               p.created_at, p.updated_at, p.longitudinal_report,
               (SELECT COUNT(*) FROM sessions s WHERE s.patient_id = p.patient_id)::int as session_count,
@@ -65,6 +78,7 @@ export default class PatientRepo extends IPatientRepo {
     const [patients, countResult] = await Promise.all([
       db.query(
         `SELECT p.patient_id, p.therapist_id, p.f_name, p.m_name, p.l_name, p.age, p.gender, p.primary_concern,
+                p.contact_number, p.email, p.reminder_consent,
                 p.profile_image, p.is_archived, p.archived_at, p.created_at,
                 (SELECT COUNT(*) FROM sessions s WHERE s.patient_id = p.patient_id)::int as session_count,
                 (SELECT s.risk_level FROM sessions s WHERE s.patient_id = p.patient_id ORDER BY s.created_at DESC LIMIT 1) as risk_level,
@@ -107,7 +121,7 @@ export default class PatientRepo extends IPatientRepo {
 
     const result = await db.query(
       `UPDATE patients SET ${setClauses.join(", ")} WHERE patient_id = $1
-       RETURNING patient_id, therapist_id, f_name, m_name, l_name, age, gender, primary_concern, profile_image, is_archived, archived_at, created_at, updated_at`,
+       RETURNING patient_id, therapist_id, f_name, m_name, l_name, age, gender, primary_concern, contact_number, email, reminder_consent, profile_image, is_archived, archived_at, created_at, updated_at`,
       params,
     );
 

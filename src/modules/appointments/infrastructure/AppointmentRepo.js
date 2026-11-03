@@ -20,7 +20,8 @@ const FOLLOW_UP_STATUS_ON_CLOSE = {
 };
 
 // Each appointment carries its pre-session interview (see preSessionInterview.js)
-// and, in a recurring series, its position ("3 of 8", cancelled sessions included).
+// and, in a recurring series, its position ("3 of 8", cancelled sessions included),
+// plus the reminder emails sent for it.
 const APPOINTMENT_SELECT = `
   SELECT a.*, TRIM(p.full_name) as patient_name, ${PRE_SESSION_INTERVIEW_COLUMNS},
          CASE WHEN a.series_id IS NULL THEN NULL ELSE
@@ -28,7 +29,10 @@ const APPOINTMENT_SELECT = `
            AS series_index,
          CASE WHEN a.series_id IS NULL THEN NULL ELSE
            (SELECT COUNT(*)::int FROM appointments s WHERE s.series_id = a.series_id) END
-           AS series_total
+           AS series_total,
+         (SELECT COALESCE(json_agg(json_build_object('kind', r.kind, 'status', r.status, 'sent_at', r.sent_at) ORDER BY r.sent_at), '[]'::json)
+          FROM appointment_reminders r WHERE r.appointment_id = a.appointment_id AND r.channel = 'email')
+           AS reminders
   FROM appointments a
   JOIN patients p ON p.patient_id = a.patient_id
   ${PRE_SESSION_INTERVIEW_JOIN}`;
@@ -358,6 +362,10 @@ export default class AppointmentRepo {
         await this.logEvent(client, appointmentId, event.action, event.detail);
         if (rows[0].follow_up_id && patch.start_at) {
           await this.markFollowUpBooked(client, rows[0].follow_up_id, rows[0].start_at);
+        }
+        // Moved: reminders already sent were for the old time — the new time gets its own.
+        if (patch.start_at) {
+          await client.query(`DELETE FROM appointment_reminders WHERE appointment_id = $1`, [appointmentId]);
         }
         return this.findById(appointmentId, therapistId, client);
       });

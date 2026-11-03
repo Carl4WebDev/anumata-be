@@ -1,8 +1,75 @@
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Optional mobile number. A Philippine mobile number (09XX…, +639XX…, 639XX…)
+ * is stored as +639XXXXXXXXX; anything else with 7–15 digits is kept as typed.
+ * "" / null clears it. Returns undefined when the field wasn't sent.
+ */
+function contactNumberOf(value, errors) {
+  if (value === undefined) return undefined;
+  if (value === null || (typeof value === "string" && !value.trim())) return null;
+  if (typeof value !== "string" || !/^[+\d\s()-]+$/.test(value.trim())) {
+    errors.contact_number = "Mobile number can only contain digits, spaces, dashes and +";
+    return null;
+  }
+  const digits = value.replace(/\D/g, "");
+  if (/^(0|63)9\d{9}$/.test(digits)) return `+63${digits.slice(-10)}`;
+  if (digits.length < 7 || digits.length > 15) {
+    errors.contact_number = "Enter a valid mobile number, e.g. 0917 123 4567";
+    return null;
+  }
+  return value.trim().replace(/\s+/g, " ");
+}
+
+/** Optional email, stored lowercased. "" / null clears it; undefined when not sent. */
+function emailOf(value, errors) {
+  if (value === undefined) return undefined;
+  if (value === null || (typeof value === "string" && !value.trim())) return null;
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!EMAIL_RE.test(email) || email.length > 255) {
+    errors.email = "Enter a valid email address, e.g. name@example.com";
+    return null;
+  }
+  return email;
+}
+
+/** Did the patient agree to appointment reminders? Must be true/false when sent. */
+function reminderConsentOf(value, errors) {
+  if (value === undefined) return {};
+  if (typeof value !== "boolean") {
+    errors.reminder_consent = "reminder_consent must be true or false";
+    return {};
+  }
+  return { reminder_consent: value };
+}
+
+/** The patient's contact details for appointment reminders, as fields to save (only those sent). */
+function contactFields({ contact_number, email, reminder_consent }, errors) {
+  const number = contactNumberOf(contact_number, errors);
+  const mail = emailOf(email, errors);
+  return {
+    ...(number !== undefined ? { contact_number: number } : {}),
+    ...(mail !== undefined ? { email: mail } : {}),
+    ...reminderConsentOf(reminder_consent, errors),
+  };
+}
+
 /**
  * Validate patient creation input.
  */
-export function validateCreatePatient({ f_name, m_name, l_name, age, gender, primary_concern }) {
+export function validateCreatePatient({
+  f_name,
+  m_name,
+  l_name,
+  age,
+  gender,
+  primary_concern,
+  contact_number,
+  email,
+  reminder_consent,
+}) {
   const errors = {};
+  const contact = contactFields({ contact_number, email, reminder_consent }, errors);
 
   if (!f_name?.trim()) {
     errors.f_name = "First name is required";
@@ -51,6 +118,10 @@ export function validateCreatePatient({ f_name, m_name, l_name, age, gender, pri
       age: Number(age),
       gender: gender.trim().toLowerCase(),
       primary_concern: primary_concern.trim(),
+      contact_number: contact.contact_number ?? null,
+      email: contact.email ?? null,
+      // Consent only counts with an email to send to.
+      reminder_consent: Boolean(contact.reminder_consent && contact.email),
     },
   };
 }
@@ -58,9 +129,23 @@ export function validateCreatePatient({ f_name, m_name, l_name, age, gender, pri
 /**
  * Validate patient update input.
  */
-export function validateUpdatePatient({ f_name, m_name, l_name, age, gender, primary_concern, profile_image, is_archived }) {
+export function validateUpdatePatient({
+  f_name,
+  m_name,
+  l_name,
+  age,
+  gender,
+  primary_concern,
+  profile_image,
+  is_archived,
+  contact_number,
+  email,
+  reminder_consent,
+}) {
   const errors = {};
-  const data = {};
+  const data = { ...contactFields({ contact_number, email, reminder_consent }, errors) };
+  // Clearing the email also turns reminders off.
+  if (data.email === null) data.reminder_consent = false;
 
   if (profile_image !== undefined) {
     if (profile_image === null) {

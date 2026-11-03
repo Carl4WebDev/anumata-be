@@ -4,12 +4,14 @@
 import "dotenv/config";
 
 import app from "./app.js";
+import { startReminderScheduler } from "./modules/reminders/reminderScheduler.js";
 
 const PORT = process.env.PORT || 5000;
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 
 app.listen(PORT, () => {
   console.log(`Amumata backend running on port ${PORT}`);
+  startReminderScheduler();
 });
 
 // Self-ping to prevent Render free tier cold start (every 10 min)

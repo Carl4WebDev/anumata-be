@@ -16,7 +16,7 @@ export default class PatientService {
   async create(therapistId, data) {
     const result = validateCreatePatient(data);
     if (!result.ok) {
-      throw new AppError("Validation failed", 400, "VALIDATION_ERROR");
+      throw new AppError(Object.values(result.errors)[0] ?? "Validation failed", 400, "VALIDATION_ERROR", result.errors);
     }
     const validated = result.data;
 
@@ -66,7 +66,7 @@ export default class PatientService {
     const result = validateUpdatePatient(data);
 
     if (!result.ok) {
-      throw new AppError("Validation failed", 400, "VALIDATION_ERROR");
+      throw new AppError(Object.values(result.errors)[0] ?? "Validation failed", 400, "VALIDATION_ERROR", result.errors);
     }
 
     if (Object.keys(result.data).length === 0) {
