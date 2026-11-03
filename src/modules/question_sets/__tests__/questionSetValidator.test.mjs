@@ -36,3 +36,22 @@ describe("question set follow-ups", () => {
     expect(() => validateQuestionSetUpdate({ questions: [{ text: "Q1", follow_up: 5 }] })).toThrow();
   });
 });
+
+describe("sensitive questions", () => {
+  test("a question can be marked sensitive; anything but true is ignored", () => {
+    const { questions } = validateQuestionSet({
+      ...base,
+      questions: [{ text: "Q1", sensitive: true }, { text: "Q2", sensitive: "yes" }, "Q3"],
+    });
+    expect(questions).toEqual([
+      { text: "Q1", order: 0, sensitive: true },
+      { text: "Q2", order: 1 },
+      { text: "Q3", order: 2 },
+    ]);
+  });
+
+  test("the mark is kept when a set is edited", () => {
+    const { questions } = validateQuestionSetUpdate({ questions: [{ text: "Q1", order: 0, sensitive: true, follow_up: "More?" }] });
+    expect(questions).toEqual([{ text: "Q1", order: 0, follow_up: "More?", sensitive: true }]);
+  });
+});

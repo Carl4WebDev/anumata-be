@@ -31,6 +31,7 @@ import { postFormData, postJson } from "../../../core/http/httpPost.js";
 import { pickEvidenceFrames, summarizeFaceFrames } from "./evidenceFrames.js";
 import { followUpAskedFields } from "./followUpsAsked.js";
 import { feelingsTappedFields } from "./feelingsTapped.js";
+import { checkInFields, resultsWithoutSkipped } from "./interviewCheckIns.js";
 import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 
 // Local Python AI service (FastAPI on port 8001)
@@ -58,9 +59,15 @@ export default class EmotionAnalysisService {
   /**
    * `extras`: what the interview room adds — the patient's mood before / after
    * (`selfReport`), which questions got their follow-up (`followUpsAsked`) and
-   * the feeling words tapped per question (`feelingsTapped`).
+   * the feeling words tapped per question (`feelingsTapped`), and the check-ins
+   * offered (`checkIns`) and questions skipped (`skipped`) — skipped questions are
+   * left out of the emotion mix, risk level and spikes.
    */
-  async analyzeByToken(token, files, { selfReport = null, followUpsAsked = new Set(), feelingsTapped = new Map() } = {}) {
+  async analyzeByToken(
+    token,
+    files,
+    { selfReport = null, followUpsAsked = new Set(), feelingsTapped = new Map(), checkIns = new Map(), skipped = new Set() } = {},
+  ) {
     // Find interview link by token
     const link = await this.interviewLinkRepo.findByToken(token);
     if (!link) {
@@ -194,19 +201,23 @@ export default class EmotionAnalysisService {
         evidence_frames: evidenceFrames.length > 0 ? evidenceFrames : null,
         ...followUpAskedFields(questions[i], i, followUpsAsked),
         ...feelingsTappedFields(i, feelingsTapped),
+        ...checkInFields(i, checkIns, skipped),
         face_frames: summarizeFaceFrames(q.all_fer_results),
       };
     });
 
+    // Session results, with questions the patient skipped left out.
+    const results = resultsWithoutSkipped(mlResult, skipped);
+
     // Build emotion_summary (distribution)
     const emotionSummary = {
-      distribution: mlResult.overall_distribution || {},
-      indicators: mlResult.indicators || [],
+      distribution: results.distribution,
+      indicators: results.indicators,
       ...(selfReport ? { self_report: selfReport } : {}),
     };
 
     // Build emotional_spikes
-    const emotionalSpikes = mlResult.spikes || [];
+    const emotionalSpikes = results.spikes;
 
     // Generate emotional event report
     const emotionalEventReport = generateEmotionalEventReport(mlResult, questionTexts, 0);
@@ -242,7 +253,7 @@ export default class EmotionAnalysisService {
       therapist_id: link.therapist_id,
       transcript,
       emotion_summary: emotionSummary,
-      risk_level: mlResult.risk_level || "Low",
+      risk_level: results.riskLevel,
       emotional_spikes: emotionalSpikes,
       emotional_events: emotionalEventReport.emotional_events,
       session_highlights: emotionalEventReport.session_highlights,
@@ -263,9 +274,9 @@ export default class EmotionAnalysisService {
 
     return {
       session_id: session.session_id,
-      risk_level: mlResult.risk_level,
-      distribution: mlResult.overall_distribution,
-      indicators: mlResult.indicators,
+      risk_level: results.riskLevel,
+      distribution: results.distribution,
+      indicators: results.indicators,
       spikes: emotionalSpikes,
       per_question: mlResult.per_question,
       emotional_events: emotionalEventReport.emotional_events,

@@ -45,10 +45,11 @@ export default class InterviewLinkRepo extends IInterviewLinkRepo {
     // Try to load snapshots first (new system)
     const snapshots = await this.findSnapshotsByToken(token);
     if (snapshots.length > 0) {
-      // Follow-ups live on the question set's questions; carry them over by matching text.
+      // Follow-ups and the "sensitive" mark live on the question set's questions; carry them over by matching text.
       const setQuestions = Array.isArray(link.questions) ? link.questions : [];
       link.questions = snapshots.map((s) => {
-        const followUp = setQuestions.find((q) => q?.text === s.question_text)?.follow_up;
+        const setQuestion = setQuestions.find((q) => q?.text === s.question_text);
+        const followUp = setQuestion?.follow_up;
         return {
           text: s.question_text,
           order: s.display_order,
@@ -56,6 +57,7 @@ export default class InterviewLinkRepo extends IInterviewLinkRepo {
           source_id: s.source_id,
           snapshot_version: s.snapshot_version,
           ...(followUp ? { follow_up: followUp } : {}),
+          ...(setQuestion?.sensitive === true ? { sensitive: true } : {}),
         };
       });
       link._from_snapshots = true;

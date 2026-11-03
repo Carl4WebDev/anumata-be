@@ -21,6 +21,15 @@ function followUpOf(q, i, questionErrors) {
   return followUp ? { follow_up: followUp } : {};
 }
 
+/**
+ * A question the therapist marked as sensitive: Amumata says a soft line
+ * before asking it and checks in sooner if the patient struggles.
+ * Returns `{ sensitive: true }`, or {} when not marked.
+ */
+function sensitiveOf(q) {
+  return typeof q === "object" && q !== null && q.sensitive === true ? { sensitive: true } : {};
+}
+
 export function validateQuestionSet({ name, description, questions }) {
   const errors = {};
 
@@ -55,6 +64,7 @@ export function validateQuestionSet({ name, description, questions }) {
           text,
           order: typeof q === "object" && q?.order !== undefined ? q.order : i,
           ...followUp,
+          ...sensitiveOf(q),
         });
       }
     });
@@ -123,6 +133,7 @@ export function validateQuestionSetUpdate({ name, description, questions }) {
         text: typeof q === "string" ? q.trim() : q.text?.trim(),
         order: typeof q === "string" ? i : (q.order || i),
         ...followUpOf(q, i, questionErrors),
+        ...sensitiveOf(q),
       }));
       if (questionErrors.length > 0) errors.questions = questionErrors;
     }
