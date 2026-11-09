@@ -16,7 +16,7 @@ import json
 import logging
 import re
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -302,29 +302,57 @@ def _extract_json(text: str) -> Optional[Dict]:
     return None
 
 
+def _as_text_list(value: Any) -> List[str]:
+    """A list field from the LLM as a list of strings. LLMs sometimes return one
+    sentence, null, or objects instead of a list of strings — the report page
+    can only render a list of strings."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        value = [value]
+    items = []
+    for item in value:
+        if isinstance(item, dict):
+            item = " — ".join(str(v) for v in item.values() if v not in (None, ""))
+        text = str(item).strip() if item is not None else ""
+        if text:
+            items.append(text)
+    return items
+
+
+def _as_evidence_quality(value: Any, default: Dict) -> Dict:
+    """evidence_quality must be an object; a sentence becomes its notes."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        return {**default, "notes": value.strip()}
+    return default
+
+
 def _validate_schema(parsed: Dict) -> Dict:
-    """Ensure the parsed report has all required fields."""
-    required = [
-        "session_summary", "topics_discussed", "keywords",
-        "therapist_evaluation", "suggested_follow_ups",
+    """Ensure the parsed report has all required fields, with the right types."""
+    list_fields = (
+        "topics_discussed", "keywords", "suggested_follow_ups",
         "key_emotional_findings", "areas_for_attention",
-        "suggested_therapist_focus", "evidence_quality", "limitations",
-    ]
-    for field in required:
+        "suggested_therapist_focus", "limitations",
+    )
+    for field in ("session_summary", "therapist_evaluation", "evidence_quality", *list_fields):
         if field not in parsed:
             logger.warning("[REPORT] Missing field '%s' in parsed report, adding default", field)
-            if field == "evidence_quality":
-                parsed[field] = {"fer": "unavailable", "ser": "unavailable", "ler": "unavailable", "overall": "limited"}
-            elif field in ("topics_discussed", "keywords", "suggested_follow_ups",
-                           "key_emotional_findings", "areas_for_attention",
-                           "suggested_therapist_focus", "limitations"):
-                parsed[field] = []
-            else:
-                parsed[field] = ""
 
     # Backward compat: if old schema has therapist_explanation but not therapist_evaluation
     if "therapist_explanation" in parsed and "therapist_evaluation" not in parsed:
         parsed["therapist_evaluation"] = parsed["therapist_explanation"]
+
+    for field in list_fields:
+        parsed[field] = _as_text_list(parsed.get(field))
+    parsed["evidence_quality"] = _as_evidence_quality(
+        parsed.get("evidence_quality"),
+        {"fer": "unavailable", "ser": "unavailable", "ler": "unavailable", "overall": "limited"},
+    )
+    for field in ("session_summary", "therapist_evaluation"):
+        if not isinstance(parsed.get(field), str):
+            parsed[field] = "" if parsed.get(field) is None else str(parsed[field])
 
     return parsed
 
@@ -1156,22 +1184,24 @@ def _build_longitudinal_context(sessions_data: List[Dict], analysis: Dict) -> st
 
 
 def _validate_longitudinal_schema(parsed: Dict) -> Dict:
-    """Ensure the longitudinal report has all required fields."""
-    required = [
-        "overall_summary", "emotional_patterns", "session_changes",
-        "recurring_indicators", "areas_for_attention", "therapist_focus",
-        "suggested_follow_up_questions", "session_highlights",
-        "evidence_quality", "limitations",
-    ]
-    for field in required:
+    """Ensure the longitudinal report has all required fields, with the right types."""
+    list_fields = (
+        "emotional_patterns", "session_changes", "recurring_indicators",
+        "areas_for_attention", "therapist_focus",
+        "suggested_follow_up_questions", "session_highlights", "limitations",
+    )
+    for field in ("overall_summary", "evidence_quality", *list_fields):
         if field not in parsed:
             logger.warning("[LONGITUDINAL] Missing field '%s', adding default", field)
-            if field == "evidence_quality":
-                parsed[field] = {"overall": "limited", "notes": "Field was missing from LLM response"}
-            elif field in ("emotional_patterns", "session_changes", "recurring_indicators",
-                          "areas_for_attention", "therapist_focus",
-                          "suggested_follow_up_questions", "session_highlights", "limitations"):
-                parsed[field] = []
-            else:
-                parsed[field] = ""
+        elif field in list_fields and not isinstance(parsed[field], list):
+            logger.warning("[LONGITUDINAL] Field '%s' was %s, not a list; converted", field, type(parsed[field]).__name__)
+
+    for field in list_fields:
+        parsed[field] = _as_text_list(parsed.get(field))
+    parsed["evidence_quality"] = _as_evidence_quality(
+        parsed.get("evidence_quality"),
+        {"overall": "limited", "notes": "Field was missing from LLM response"},
+    )
+    if not isinstance(parsed.get("overall_summary"), str):
+        parsed["overall_summary"] = "" if parsed.get("overall_summary") is None else str(parsed["overall_summary"])
     return parsed
