@@ -21,6 +21,7 @@ import notificationRoutes from "./modules/notifications/interface/notificationRo
 import aiJobRoutes from "./modules/ai_jobs/aiJobRoutes.js";
 import adminRoutes from "./modules/admin/interface/adminRoutes.js";
 import liveRoutes from "./modules/live/liveRoutes.js";
+import translationRoutes from "./modules/translations/translationRoutes.js";
 
 import multer from "multer";
 import errorHandler from "./core/middleware/errorHandler.js";
@@ -140,6 +141,8 @@ app.use("/api/ai-jobs", aiJobRoutes);
 app.use("/api/admin", adminRoutes);
 // Live viewing: which interviews are live now (the video itself goes over WebRTC, see modules/live)
 app.use("/api/live", liveRoutes);
+// Saved Tagalog/Bisaya translations of interview questions (interview room + therapist review)
+app.use("/api/translations", translationRoutes);
 
 // Error handling
 app.use(notFoundHandler);

@@ -55,7 +55,7 @@ export default class NotificationService {
       crisis_flag: {
         title: `Urgent: please check on ${name}`,
         message:
-          "During the interview they said something that may mean thoughts of self-harm. Amumata showed them crisis hotlines. Please contact them as soon as you can.",
+          "During the interview they said something that may mean thoughts of self-harm. Amumata showed them crisis hotlines. You can watch the interview live now, and please contact them as soon as you can.",
         route: `/patients/${link.patient_id}`,
       },
     }[type];
