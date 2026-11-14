@@ -30,6 +30,12 @@ export default class NotificationService {
   async notifyInterview(link, type, { sessionId = null } = {}) {
     const name = (link.patient_name || "Your patient").trim();
     const content = {
+      // The patient entered the interview room: one click to watch live.
+      interview_started: {
+        title: `${name} started the interview`,
+        message: "They're answering now. Open this to watch live.",
+        route: `/interview-links/${link.interview_link_id}/live`,
+      },
       interview_finished: {
         title: `${name} finished the interview`,
         message: "Their answers are being analysed. You'll be notified when the results are ready.",

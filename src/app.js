@@ -20,6 +20,7 @@ import appointmentRoutes from "./modules/appointments/interface/appointmentRoute
 import notificationRoutes from "./modules/notifications/interface/notificationRoutes.js";
 import aiJobRoutes from "./modules/ai_jobs/aiJobRoutes.js";
 import adminRoutes from "./modules/admin/interface/adminRoutes.js";
+import liveRoutes from "./modules/live/liveRoutes.js";
 
 import multer from "multer";
 import errorHandler from "./core/middleware/errorHandler.js";
@@ -137,6 +138,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/ai-jobs", aiJobRoutes);
 // Admin: therapist accounts and PRC license checks (account data only, no patient data)
 app.use("/api/admin", adminRoutes);
+// Live viewing: which interviews are live now (the video itself goes over WebRTC, see modules/live)
+app.use("/api/live", liveRoutes);
 
 // Error handling
 app.use(notFoundHandler);
