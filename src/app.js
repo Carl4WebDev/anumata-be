@@ -19,6 +19,7 @@ import followUpRoutes from "./modules/follow_ups/interface/followUpRoutes.js";
 import appointmentRoutes from "./modules/appointments/interface/appointmentRoutes.js";
 import notificationRoutes from "./modules/notifications/interface/notificationRoutes.js";
 import aiJobRoutes from "./modules/ai_jobs/aiJobRoutes.js";
+import adminRoutes from "./modules/admin/interface/adminRoutes.js";
 
 import multer from "multer";
 import errorHandler from "./core/middleware/errorHandler.js";
@@ -134,6 +135,8 @@ app.use("/api/follow-ups", followUpRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/ai-jobs", aiJobRoutes);
+// Admin: therapist accounts and PRC license checks (account data only, no patient data)
+app.use("/api/admin", adminRoutes);
 
 // Error handling
 app.use(notFoundHandler);

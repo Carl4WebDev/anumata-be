@@ -105,7 +105,8 @@ describe("AuthService.changePassword", () => {
 });
 
 const CONSENT = { accepted_terms: true, terms_version: TERMS_VERSION };
-const VALID = { email: "ana@clinic.ph", password: "Kalamansi#Tree8", f_name: "Ana", l_name: "Reyes", ...CONSENT };
+const LICENSE = { profession: "psychologist", license_number: "0012345", license_name: "Ana Reyes" };
+const VALID = { email: "ana@clinic.ph", password: "Kalamansi#Tree8", f_name: "Ana", l_name: "Reyes", ...CONSENT, ...LICENSE };
 
 describe("AuthService register password rules", () => {
   test("registration rejects weak passwords with a readable message", () => {
@@ -139,7 +140,11 @@ describe("User Consent and Agreement Validation", () => {
   });
 
   test("the accepted agreement version is stored with the account", async () => {
-    const repo = { findByEmail: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ user_id: 1 }) };
+    const repo = {
+      findByEmail: vi.fn().mockResolvedValue(null),
+      findByLicense: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ user_id: 1 }),
+    };
     const service = new AuthService(repo, {});
     await service.register(VALID);
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ email: "ana@clinic.ph", terms_version: TERMS_VERSION }));

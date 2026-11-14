@@ -4,6 +4,7 @@ import AppError from "../../../core/errors/AppError.js";
 import ValidationError from "../../../core/errors/ValidationError.js";
 import { checkPasswordStrength } from "./passwordPolicy.js";
 import { TERMS_VERSION } from "./termsVersion.js";
+import { validateLicenseFields } from "./licenseFields.js";
 
 export default class AuthService {
   constructor(userRepository, tokenService) {
@@ -11,8 +12,12 @@ export default class AuthService {
     this.tokenService = tokenService;
   }
 
-  validateRegisterInput({ email, password, f_name, m_name, l_name, accepted_terms, terms_version }) {
-    const errors = {};
+  validateRegisterInput({
+    email, password, f_name, m_name, l_name, accepted_terms, terms_version, profession, license_number, license_name,
+  }) {
+    // PRC license details are required; an admin checks them on the PRC site afterwards.
+    const license = validateLicenseFields({ profession, license_number, license_name }, { required: true });
+    const errors = { ...license.errors };
 
     // User Consent and Agreement Validation: the account is only created when
     // the therapist accepted the CURRENT agreement (an old cached form can't).
@@ -64,27 +69,45 @@ export default class AuthService {
       m_name: normalizedMName,
       l_name: normalizedLName,
       terms_version: TERMS_VERSION,
+      ...license.data,
     };
   }
 
-  async register(data) {
-    const { email, password, f_name, m_name, l_name, terms_version } = this.validateRegisterInput(data);
+  /** One account per PRC license (per profession). */
+  async assertLicenseUnused(profession, licenseNumber, excludeUserId = null) {
+    if (await this.userRepository.findByLicense(profession, licenseNumber, excludeUserId)) {
+      throw new AppError(
+        "This PRC license number is already registered to another account. Contact the administrator if this is a mistake.",
+        409,
+        "LICENSE_EXISTS",
+      );
+    }
+  }
 
-    const existingUser = await this.userRepository.findByEmail(email);
+  async register(data) {
+    const input = this.validateRegisterInput(data);
+
+    const existingUser = await this.userRepository.findByEmail(input.email);
 
     if (existingUser) {
       throw new AppError("Email already registered", 409, "EMAIL_EXISTS");
     }
 
-    const password_hash = await bcrypt.hash(password, 10);
+    await this.assertLicenseUnused(input.profession, input.license_number);
 
+    const password_hash = await bcrypt.hash(input.password, 10);
+
+    // New accounts start as license_status 'pending' (database default) until an admin verifies them.
     const user = await this.userRepository.create({
-      email,
+      email: input.email,
       password_hash,
-      f_name,
-      m_name,
-      l_name,
-      terms_version,
+      f_name: input.f_name,
+      m_name: input.m_name,
+      l_name: input.l_name,
+      terms_version: input.terms_version,
+      profession: input.profession,
+      license_number: input.license_number,
+      license_name: input.license_name,
     });
 
     return user;
@@ -138,10 +161,19 @@ export default class AuthService {
       );
     }
 
+    // Checked after the password, so this message doesn't reveal which emails have accounts.
+    if (!user.is_active) {
+      throw new AppError(
+        "This account has been deactivated. Contact the administrator if you think this is a mistake.",
+        403,
+        "ACCOUNT_DEACTIVATED",
+      );
+    }
+
     const token = this.tokenService.generateToken({
       userId: user.user_id,
       email: user.email,
-      role: "THERAPIST",
+      role: user.role,
     });
 
     return {
@@ -152,6 +184,8 @@ export default class AuthService {
         f_name: user.f_name,
         m_name: user.m_name,
         l_name: user.l_name,
+        role: user.role,
+        license_status: user.license_status,
       },
     };
   }
@@ -167,8 +201,13 @@ export default class AuthService {
   }
 
   async updateProfile(userId, body) {
-    const { f_name, m_name, l_name, profile_image, phone, specialization, license_number, affiliation } = body;
-    const errors = {};
+    const { f_name, m_name, l_name, profile_image, phone, specialization, affiliation } = body;
+    const license = validateLicenseFields({
+      profession: body.profession,
+      license_number: body.license_number,
+      license_name: body.license_name,
+    });
+    const errors = { ...license.errors };
     const data = {};
 
     if (f_name !== undefined) {
@@ -224,7 +263,6 @@ export default class AuthService {
     const textFields = [
       ["phone", phone, 30],
       ["specialization", specialization, 120],
-      ["license_number", license_number, 60],
       ["affiliation", affiliation, 120],
     ];
     for (const [key, value, max] of textFields) {
@@ -238,7 +276,29 @@ export default class AuthService {
     }
 
     if (Object.keys(errors).length > 0) {
-      throw new ValidationError("Validation failed", errors);
+      throw new ValidationError(Object.values(errors)[0] ?? "Validation failed", errors);
+    }
+
+    // Changed PRC details must be checked again by the admin.
+    if (Object.keys(license.data).length > 0) {
+      const current = await this.userRepository.findById(userId);
+      if (!current) {
+        throw new AppError("User not found", 404, "USER_NOT_FOUND");
+      }
+      const changed = Object.entries(license.data).some(([key, value]) => current[key] !== value);
+      if (changed) {
+        const profession = license.data.profession ?? current.profession;
+        const licenseNumber = license.data.license_number ?? current.license_number;
+        if (profession && licenseNumber) {
+          await this.assertLicenseUnused(profession, licenseNumber, userId);
+        }
+        Object.assign(data, license.data, {
+          license_status: "pending",
+          license_note: null,
+          license_checked_at: null,
+          license_checked_by: null,
+        });
+      }
     }
 
     if (Object.keys(data).length === 0) {

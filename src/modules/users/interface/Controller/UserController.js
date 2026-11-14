@@ -60,6 +60,8 @@ export const updateProfile = asyncHandler(async (req, res) => {
     phone: req.body.phone,
     specialization: req.body.specialization,
     license_number: req.body.license_number,
+    profession: req.body.profession,
+    license_name: req.body.license_name,
     affiliation: req.body.affiliation,
   });
 

@@ -3,6 +3,8 @@ FER (Facial Emotion Recognition) service.
 
 Uses EfficientNet-B0 via timm for inference.
 Detects faces with OpenCV Haar Cascade, classifies the largest face.
+The model is trained on grayscale faces, so the face crop is made grayscale
+(as 3 identical channels) before classifying.
 """
 
 import io
@@ -67,7 +69,9 @@ def _get_face_cascade():
     return _face_cascade
 
 
+# Same as training (fer/dataset.py eval_transform on the grayscale dataset).
 _transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=3),
     transforms.Resize((FER_IMAGE_SIZE, FER_IMAGE_SIZE)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),

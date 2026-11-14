@@ -72,4 +72,17 @@ export default class NotificationService {
       return null;
     }
   }
+
+  /**
+   * Notify a therapist about their own account (e.g. the PRC license check result).
+   * Opens Settings, where the license details are. Never throws.
+   */
+  async notifyAccount(userId, { type, title, message }) {
+    try {
+      return await this.repo.create({ user_id: userId, type, title, message, link: "/settings" });
+    } catch (err) {
+      console.error(`[NOTIFY] Could not create ${type} notification:`, err.message);
+      return null;
+    }
+  }
 }

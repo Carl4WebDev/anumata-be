@@ -1,0 +1,34 @@
+FER merged + cleaned dataset
+============================================================
+Format: grayscale 112x112 PNG, face only
+
+Input images: 39286   Kept: 37161   Dropped: 2125
+
+Dropped, by reason:
+  duplicate                                     983
+  same image is in the test set                 700
+  duplicate (another frame of the same CK+ clip) 284
+  same image with different labels              138
+  blank image                                   16
+  no face found (Davao)                         4
+  (CK+ images moved from validation to train: 49)
+
+Kept, by split and emotion:
+  train       angry=3690  happy=10014  neutral=6098  sad=5432  total=25234
+  validation  angry=597  happy=1722  neutral=1039  sad=929  total=4287
+  test        angry=1095  happy=2949  neutral=1888  sad=1708  total=7640
+
+Kept, by source and split:
+  ckplus    train=142  validation=0  test=0
+  davao     train=105  validation=23  test=23
+  fer2013   train=16617  validation=2831  test=5125
+  rafdb     train=8370  validation=1433  test=2492
+
+Davao by split and emotion:
+  train       angry=24  happy=34  neutral=25  sad=22
+  validation  angry=5  happy=8  neutral=6  sad=4
+  test        angry=5  happy=8  neutral=6  sad=4
+
+Davao test images are named davao_*.png, so they can be scored on their own.
+No participant IDs were available: Davao people were grouped by face similarity,
+so each person should be in one split, but this is an estimate.
