@@ -4,10 +4,11 @@ import { aiJobs } from "../../../ai_jobs/aiJobs.js";
 import SessionRepo from "../../infrastructure/SessionRepo.js";
 import SessionService from "../../application/SessionService.js";
 import InterviewLinkRepo from "../../../interview_links/infrastructure/InterviewLinkRepo.js";
+import InterviewMessageRepo from "../../../live/InterviewMessageRepo.js";
 
 const sessionRepo = new SessionRepo();
 const interviewLinkRepo = new InterviewLinkRepo();
-const sessionService = new SessionService(sessionRepo, interviewLinkRepo);
+const sessionService = new SessionService(sessionRepo, interviewLinkRepo, new InterviewMessageRepo());
 
 export const createSession = asyncHandler(async (req, res) => {
   const result = await sessionService.create(req.user.id, req.body);

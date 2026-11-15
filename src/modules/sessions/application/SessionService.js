@@ -6,9 +6,28 @@ import { AI_REQUEST_TIMEOUT_MS } from "../../ai_jobs/aiJobs.js";
 import { validateCreateSession, validateUpdateNotes } from "./validators/sessionValidator.js";
 
 export default class SessionService {
-  constructor(sessionRepo, interviewLinkRepo) {
+  /**
+   * @param messageRepo where the live conversation is saved, when the therapist
+   *   stepped in during the interview ({ listByLink }); optional
+   */
+  constructor(sessionRepo, interviewLinkRepo, messageRepo = null) {
     this.sessionRepo = sessionRepo;
     this.interviewLinkRepo = interviewLinkRepo;
+    this.messageRepo = messageRepo;
+  }
+
+  /**
+   * What the therapist and patient said to each other during the interview.
+   * The report still opens if this can't be loaded: an empty list, and the error logged.
+   */
+  async liveMessages(interviewLinkId) {
+    if (!this.messageRepo || !interviewLinkId) return [];
+    try {
+      return await this.messageRepo.listByLink(interviewLinkId);
+    } catch (err) {
+      console.error("[SESSIONS] Loading the live conversation failed:", err.message);
+      return [];
+    }
   }
 
   async create(therapistId, data) {
@@ -46,7 +65,7 @@ export default class SessionService {
       throw new AppError("Access denied", 403, "FORBIDDEN");
     }
 
-    return session;
+    return { ...session, live_messages: await this.liveMessages(session.interview_link_id) };
   }
 
   async getByPatientId(therapistId, patientId, { page = 1, limit = 20 } = {}) {

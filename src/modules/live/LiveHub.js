@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { KEEP_IN_ROOM, cleanBody, rateLimiter } from "./liveTalk.js";
 
 const OPEN = 1; // WebSocket.OPEN
 
 /**
  * Live viewing of interviews: one room per interview link, with the patient's
- * browser and any number of the therapist's viewers. The hub only relays
- * WebRTC signals (offers, answers, ICE candidates) and the interview's live
- * state — the video itself goes directly between the browsers (or via TURN).
+ * browser and any number of the therapist's viewers. The hub relays WebRTC
+ * signals (offers, answers, ICE candidates), the interview's live state, and
+ * the conversation when the therapist steps in — the video itself goes directly
+ * between the browsers (or via TURN).
+ *
+ * Stepping in: the therapist sends messages ("talk") and can pause or resume
+ * the questions; the patient replies and confirms each message was shown
+ * ("seen"). Everything is relayed to both sides and saved (when a store is given).
  *
  * Sockets are anything with send(string), close() and readyState.
  */
@@ -14,16 +20,25 @@ export default class LiveHub {
   /**
    * @param iceServers STUN/TURN servers both browsers use
    * @param onPatientLive called when a patient comes online (e.g. to notify the therapist)
+   * @param messages where the conversation is saved: { save(), markSeen() } (optional)
    */
-  constructor({ iceServers = [], onPatientLive = () => {} } = {}) {
+  constructor({ iceServers = [], onPatientLive = () => {}, messages = null } = {}) {
     this.iceServers = iceServers;
     this.onPatientLive = onPatientLive;
+    this.messages = messages;
+    this.allow = rateLimiter();
     this.rooms = new Map(); // interview_link_id → room
     this.meta = new WeakMap(); // socket → { role, linkId, viewerId }
   }
 
   send(socket, message) {
     if (socket && socket.readyState === OPEN) socket.send(JSON.stringify(message));
+  }
+
+  /** To the patient and every viewer of the room. */
+  sendAll(room, message) {
+    this.send(room.patient, message);
+    for (const viewer of room.viewers.values()) this.send(viewer, message);
   }
 
   room(link) {
@@ -37,6 +52,9 @@ export default class LiveHub {
         viewers: new Map(), // viewerId → socket
         state: {},
         since: null,
+        talk: [], // recent messages, pauses and resumes, oldest first
+        paused: false, // the therapist paused the questions
+        saved: new Map(), // talk ref → Promise of its message_id
       };
       this.rooms.set(room.linkId, room);
     }
@@ -54,7 +72,7 @@ export default class LiveHub {
     room.patient = socket;
     room.since = new Date().toISOString();
     this.meta.set(socket, { role: "patient", linkId: room.linkId });
-    this.send(socket, { type: "welcome", role: "patient", iceServers: this.iceServers });
+    this.send(socket, { type: "welcome", role: "patient", iceServers: this.iceServers, paused: room.paused, talk: room.talk });
     for (const [viewerId, viewer] of room.viewers) {
       this.send(viewer, { type: "patient-online", state: room.state });
       this.send(socket, { type: "viewer-joined", viewerId });
@@ -76,6 +94,8 @@ export default class LiveHub {
       patientOnline: Boolean(room.patient),
       patientName: room.patientName,
       state: room.state,
+      paused: room.paused,
+      talk: room.talk,
     });
     if (room.patient) this.send(room.patient, { type: "viewer-joined", viewerId });
   }
@@ -99,7 +119,60 @@ export default class LiveHub {
     if (msg.type === "state" && who.role === "patient" && msg.state && typeof msg.state === "object") {
       room.state = { ...room.state, ...msg.state, updatedAt: new Date().toISOString() };
       for (const viewer of room.viewers.values()) this.send(viewer, { type: "state", state: room.state });
+      return;
     }
+
+    if (who.role === "viewer") this.fromTherapist(socket, room, msg);
+    else this.fromPatient(socket, room, msg);
+  }
+
+  /** The therapist steps in: a message, or pausing / resuming the questions. */
+  fromTherapist(socket, room, msg) {
+    if (msg.type === "talk") {
+      const body = cleanBody(msg.body);
+      if (body && this.allow(socket)) this.addTalk(room, { sender: "therapist", kind: "message", body });
+    } else if ((msg.type === "pause" || msg.type === "resume") && room.paused !== (msg.type === "pause")) {
+      if (!this.allow(socket)) return;
+      room.paused = msg.type === "pause";
+      this.addTalk(room, { sender: "therapist", kind: msg.type });
+    }
+  }
+
+  /** The patient replies, or confirms a therapist message was shown. */
+  fromPatient(socket, room, msg) {
+    if (msg.type === "talk") {
+      const body = cleanBody(msg.body);
+      if (body && this.allow(socket)) this.addTalk(room, { sender: "patient", kind: "message", body });
+    } else if (msg.type === "seen" && typeof msg.ref === "string") {
+      const item = room.talk.find((t) => t.ref === msg.ref && t.sender === "therapist" && t.kind === "message");
+      if (!item || item.seenAt) return;
+      const seenAt = new Date().toISOString();
+      room.talk = room.talk.map((t) => (t === item ? { ...t, seenAt } : t));
+      for (const viewer of room.viewers.values()) this.send(viewer, { type: "seen", ref: item.ref, seenAt });
+      const saved = room.saved.get(item.ref);
+      if (saved && this.messages) {
+        saved.then((id) => id && this.messages.markSeen(id)).catch((err) => console.error("[LIVE] Mark seen failed:", err.message));
+      }
+    }
+  }
+
+  /** Keep, relay and save one message / pause / resume. */
+  addTalk(room, { sender, kind, body = null, auto = false }) {
+    const item = { ref: randomUUID(), sender, kind, body, at: new Date().toISOString(), seenAt: null, ...(auto ? { auto } : {}) };
+    room.talk = [...room.talk, item].slice(-KEEP_IN_ROOM);
+    this.sendAll(room, { type: "talk", item });
+    if (!this.messages) return;
+    // Relaying comes first: the patient gets the message even if saving fails.
+    const questionIndex = Number.isInteger(room.state.questionIndex) ? room.state.questionIndex : null;
+    const saved = Promise.resolve()
+      .then(() => this.messages.save({ linkId: room.linkId, sender, kind, body, questionIndex }))
+      .catch((err) => {
+        console.error("[LIVE] Saving a message failed:", err.message);
+        return null;
+      });
+    room.saved.set(item.ref, saved);
+    // Only the recent ones can still be marked seen.
+    if (room.saved.size > KEEP_IN_ROOM) room.saved.delete(room.saved.keys().next().value);
   }
 
   /** A socket closed. */
@@ -117,6 +190,17 @@ export default class LiveHub {
     } else if (who.role === "viewer") {
       room.viewers.delete(who.viewerId);
       this.send(room.patient, { type: "viewer-left", viewerId: who.viewerId });
+      // The therapist closed the live view while the questions were paused:
+      // don't leave the patient waiting for someone who is gone.
+      if (room.viewers.size === 0 && room.paused) {
+        room.paused = false;
+        this.addTalk(room, {
+          sender: "therapist",
+          kind: "resume",
+          body: "Resumed automatically: the therapist closed the live view.",
+          auto: true,
+        });
+      }
     }
     if (!room.patient && room.viewers.size === 0) this.rooms.delete(room.linkId);
   }

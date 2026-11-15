@@ -3,6 +3,7 @@ import db from "../../core/database/db.js";
 import AuthTokenService from "../../core/middleware/AuthTokenService.js";
 import InterviewLinkRepo from "../interview_links/infrastructure/InterviewLinkRepo.js";
 import { notificationService } from "../notifications/notificationServiceInstance.js";
+import InterviewMessageRepo from "./InterviewMessageRepo.js";
 import LiveHub from "./LiveHub.js";
 
 export const LIVE_PATH = "/ws/live";
@@ -28,6 +29,8 @@ const tokens = new AuthTokenService();
 
 export const liveHub = new LiveHub({
   iceServers: iceServersFromEnv(),
+  // When the therapist steps in, the conversation is saved for the session report.
+  messages: new InterviewMessageRepo(),
   // "Maria started the interview — Watch live". Sent once per interview link.
   onPatientLive: (link) => {
     notificationService.notifyInterview(link, "interview_started").catch(() => {});
