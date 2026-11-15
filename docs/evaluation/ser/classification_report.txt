@@ -1,0 +1,36 @@
+SER Evaluation Report
+============================================================
+
+Test Accuracy:  0.7895 (78.95%)
+Macro F1:       0.7907
+Weighted F1:    0.7913
+
+Accuracy by source (new speakers):
+  cremad    85.47%  (702 clips)
+  ravdess   75.89%  (112 clips)
+  davao     52.50%  (160 clips)
+
+Per-class metrics:
+       Angry  P=0.8978  R=0.7953  F1=0.8434  n=254
+       Happy  P=0.6847  R=0.8465  F1=0.7570  n=254
+     Neutral  P=0.7556  R=0.8019  F1=0.7780  n=212
+         Sad  P=0.8667  R=0.7165  F1=0.7845  n=254
+
+              precision    recall  f1-score   support
+
+       Angry     0.8978    0.7953    0.8434       254
+       Happy     0.6847    0.8465    0.7570       254
+     Neutral     0.7556    0.8019    0.7780       212
+         Sad     0.8667    0.7165    0.7845       254
+
+    accuracy                         0.7895       974
+   macro avg     0.8012    0.7900    0.7907       974
+weighted avg     0.8031    0.7895    0.7913       974
+
+
+Confusion Matrix:
+ True/Pred     Angry     Happy   Neutral       Sad
+     Angry       202        45         5         2
+     Happy        13       215        15        11
+   Neutral         1        26       170        15
+       Sad         9        28        35       182

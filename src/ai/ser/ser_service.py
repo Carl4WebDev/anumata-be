@@ -36,14 +36,23 @@ _processor = None
 
 
 class SERModel(nn.Module):
-    """SER model matching the training architecture in ser/model.py."""
+    """
+    SER model matching the training architecture in ser/model.py.
 
-    def __init__(self, num_classes=4):
+    layer_pooling:
+        "weighted" — a learned mix of all 13 Wav2Vec2 layers (models trained from 2026-11).
+        "last"     — the last layer only (older models).
+    """
+
+    def __init__(self, num_classes: int = 4, layer_pooling: str = "last") -> None:
         super().__init__()
+        self.layer_pooling = layer_pooling
         self.backbone = Wav2Vec2Model.from_pretrained(
             "facebook/wav2vec2-base", low_cpu_mem_usage=True
         )
         hidden_size = self.backbone.config.hidden_size  # 768
+        if layer_pooling == "weighted":
+            self.layer_weights = nn.Parameter(torch.zeros(self.backbone.config.num_hidden_layers + 1))
         self.classifier = nn.Sequential(
             nn.Linear(hidden_size, 256),
             nn.ReLU(),
@@ -51,21 +60,35 @@ class SERModel(nn.Module):
             nn.Linear(256, num_classes),
         )
 
-    def forward(self, input_values):
-        outputs = self.backbone(input_values=input_values)
-        hidden_states = outputs.last_hidden_state
-        pooled = hidden_states.mean(dim=1)
-        logits = self.classifier(pooled)
-        return logits
+    def forward(self, input_values: torch.Tensor) -> torch.Tensor:
+        if self.layer_pooling == "weighted":
+            outputs = self.backbone(input_values=input_values, output_hidden_states=True)
+            stacked = torch.stack(outputs.hidden_states, dim=0)  # (layers, batch, frames, hidden)
+            weights = torch.softmax(self.layer_weights, dim=0).to(stacked.dtype)
+            hidden_states = (weights[:, None, None, None] * stacked).sum(dim=0)
+        else:
+            hidden_states = self.backbone(input_values=input_values).last_hidden_state
+        pooled = hidden_states.mean(dim=1)  # one clip, no padding: every frame is real audio
+        return self.classifier(pooled)
+
+
+def layer_pooling_of(checkpoint: dict) -> str:
+    """How the checkpoint was trained to read the backbone's layers."""
+    pooling = checkpoint.get("config", {}).get("layer_pooling")
+    if pooling:
+        return pooling
+    return "weighted" if "layer_weights" in checkpoint["model_state_dict"] else "last"
 
 
 def _get_model():
     global _model
     if _model is None:
         logger.info("Loading SER model from %s", SER_MODEL_PATH)
-        model = SERModel(num_classes=4)
         checkpoint = torch.load(str(SER_MODEL_PATH), map_location="cpu")
+        pooling = layer_pooling_of(checkpoint)
+        model = SERModel(num_classes=4, layer_pooling=pooling)
         model.load_state_dict(checkpoint["model_state_dict"])
+        logger.info("SER layer pooling: %s", pooling)
         model.eval()
         _model = model
         logger.info("SER model loaded (epoch %s, val_acc %.2f%%)",

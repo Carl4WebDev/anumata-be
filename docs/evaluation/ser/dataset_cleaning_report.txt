@@ -1,0 +1,53 @@
+SER dataset cleaning report
+============================================================
+
+Input clips: 8096   kept: 7981   dropped: 115
+
+Dropped, by reason:
+  cremad       2  same audio under different emotions
+  cremad      16  speech barely above background (< 6 dB)
+  davao       69  Davao speaker recorded only 1 of 4 emotions (kept in raw/)
+  davao       27  Davao speaker recorded only 2 of 4 emotions (kept in raw/)
+  ravdess      1  exact copy of ravdess_000175.wav
+
+TRAIN  6124 clips, 91 speakers
+     angry    happy  neutral      sad    source
+       907      906      775      901    cremad
+       128      127       64      128    ravdess
+        60       60      120       60    savee
+       400      400      400      400    tess
+        60       80       82       66    davao
+      1555     1573     1441     1555    total
+  voices: 2581 male, 3543 female clips
+
+VALIDATION  883 clips, 18 speakers
+     angry    happy  neutral      sad    source
+       182      182      155      172    cremad
+        32       32       16       32    ravdess
+        20       20       20       20    davao
+       234      234      191      224    total
+  voices: 513 male, 370 female clips
+
+TEST  974 clips, 19 speakers
+     angry    happy  neutral      sad    source
+       182      182      156      182    cremad
+        32       32       16       32    ravdess
+        40       40       40       40    davao
+       254      254      212      254    total
+  voices: 514 male, 460 female clips
+
+Speakers in more than one split: 0
+
+Davao speakers (voice type estimated from pitch — confirm in speaker_codes_PRIVATE.csv):
+  S01  male    angry:20  happy:20  neutral:20  sad:20   → test
+  S02  male    angry:20  happy:20  neutral:20  sad:20   → validation
+  S03  male    angry:20  happy:20  neutral:20  sad:20   → train
+  S04  male    angry:20  happy:20  neutral:20  sad:20   → train
+  S05  female  angry:0   happy:0   neutral:20  sad:0    → not used
+  S06  female  angry:20  happy:20  neutral:20  sad:20   → test
+  S07  male    angry:0   happy:0   neutral:5   sad:0    → not used
+  S08  male    angry:0   happy:0   neutral:21  sad:0    → not used
+  S09  female  angry:0   happy:0   neutral:23  sad:0    → not used
+  S10  male    angry:0   happy:7   neutral:20  sad:0    → not used
+  S11  female  angry:0   happy:20  neutral:22  sad:6    → train
+  S12  male    angry:20  happy:20  neutral:20  sad:20   → train
