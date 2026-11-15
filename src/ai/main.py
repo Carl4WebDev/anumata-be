@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Add AI root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -291,6 +291,27 @@ async def ai_translate(req: TranslateRequest) -> dict:
     from translation.translator import translate_text
     translated = translate_text(req.text, req.target)
     return {"translated": translated or "", "ok": translated is not None}
+
+
+class AssistantPassage(BaseModel):
+    source: str = Field(max_length=100)
+    title: str = Field(max_length=300)
+    text: str = Field(max_length=1500)
+
+
+class AssistantRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    passages: list[AssistantPassage] = Field(max_length=8)
+
+
+@app.post("/api/assistant/answer")
+async def assistant_answer(req: AssistantRequest) -> dict:
+    """Ask Amumata (admin): answer from the given info-page passages only. ok=false when Ollama fails."""
+    from assistant.answer import answer_question
+    result = await run_in_threadpool(answer_question, req.question, [p.model_dump() for p in req.passages])
+    if result is None:
+        return {"ok": False, "answer": "", "found": False, "sources": []}
+    return {"ok": True, **result}
 
 
 # =============================================================================

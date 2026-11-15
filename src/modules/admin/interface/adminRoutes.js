@@ -6,11 +6,21 @@ import { sendSuccess } from "../../../core/http/apiResponse.js";
 import AdminRepo from "../infrastructure/AdminRepo.js";
 import AdminService from "../application/AdminService.js";
 import { notificationService } from "../../notifications/notificationServiceInstance.js";
+import AssistantService from "../application/AssistantService.js";
+import { assistantLimiter } from "../../../core/middleware/AssistantRateLimiter.js";
 
 const service = new AdminService(new AdminRepo(), notificationService, forgetAccount);
+const assistant = new AssistantService();
 const router = express.Router();
 
 router.use(authMiddleware, requireAdmin);
+
+// Ask Amumata: answers from the system's own info pages (nothing is saved).
+router.post(
+  "/assistant/ask",
+  assistantLimiter,
+  asyncHandler(async (req, res) => sendSuccess(res, { data: await assistant.ask(req.body ?? {}) })),
+);
 
 router.get(
   "/usage",
