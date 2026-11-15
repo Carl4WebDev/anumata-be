@@ -7,6 +7,13 @@ export const MAX_BODY = 500; // same limit as interview_messages.body
 export const KEEP_IN_ROOM = 50; // recent messages a (re)joining browser receives
 export const RATE = { max: 5, perMs: 10_000 }; // per browser
 
+// The patient says they're ready to go on while the therapist has paused the questions:
+// the therapist is told, and the questions resume by themselves after a minute
+// unless the therapist resumes or replies first — the patient is never stuck.
+export const READY_RESUME_MS = 60_000;
+export const READY_BODY = "I'm ready to continue.";
+export const READY_RESUMED_BODY = "Resumed automatically: the patient was ready and the therapist didn't respond within 1 minute.";
+
 /**
  * The message text, cleaned: control characters removed (new lines kept) and
  * trimmed. null if it isn't text, is empty, or is longer than MAX_BODY.

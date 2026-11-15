@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { KEEP_IN_ROOM, cleanBody, rateLimiter } from "./liveTalk.js";
+import { KEEP_IN_ROOM, READY_BODY, READY_RESUME_MS, READY_RESUMED_BODY, cleanBody, rateLimiter } from "./liveTalk.js";
 
 const OPEN = 1; // WebSocket.OPEN
 
@@ -21,11 +21,14 @@ export default class LiveHub {
    * @param iceServers STUN/TURN servers both browsers use
    * @param onPatientLive called when a patient comes online (e.g. to notify the therapist)
    * @param messages where the conversation is saved: { save(), markSeen() } (optional)
+   * @param readyResumeMs the patient said they're ready: the questions resume by
+   *   themselves after this long unless the therapist resumes or replies first
    */
-  constructor({ iceServers = [], onPatientLive = () => {}, messages = null } = {}) {
+  constructor({ iceServers = [], onPatientLive = () => {}, messages = null, readyResumeMs = READY_RESUME_MS } = {}) {
     this.iceServers = iceServers;
     this.onPatientLive = onPatientLive;
     this.messages = messages;
+    this.readyResumeMs = readyResumeMs;
     this.allow = rateLimiter();
     this.rooms = new Map(); // interview_link_id → room
     this.meta = new WeakMap(); // socket → { role, linkId, viewerId }
@@ -54,6 +57,7 @@ export default class LiveHub {
         since: null,
         talk: [], // recent messages, pauses and resumes, oldest first
         paused: false, // the therapist paused the questions
+        readyTimer: null, // the patient said they're ready: resumes by itself when it fires
         saved: new Map(), // talk ref → Promise of its message_id
       };
       this.rooms.set(room.linkId, room);
@@ -130,19 +134,30 @@ export default class LiveHub {
   fromTherapist(socket, room, msg) {
     if (msg.type === "talk") {
       const body = cleanBody(msg.body);
-      if (body && this.allow(socket)) this.addTalk(room, { sender: "therapist", kind: "message", body });
+      if (!body || !this.allow(socket)) return;
+      // Replying after the patient said they're ready: the therapist is still talking, so no automatic resume.
+      this.cancelReady(room);
+      this.addTalk(room, { sender: "therapist", kind: "message", body });
     } else if ((msg.type === "pause" || msg.type === "resume") && room.paused !== (msg.type === "pause")) {
       if (!this.allow(socket)) return;
+      this.cancelReady(room);
       room.paused = msg.type === "pause";
       this.addTalk(room, { sender: "therapist", kind: msg.type });
     }
   }
 
-  /** The patient replies, or confirms a therapist message was shown. */
+  /** The patient replies, says they're ready to go on, or confirms a therapist message was shown. */
   fromPatient(socket, room, msg) {
     if (msg.type === "talk") {
       const body = cleanBody(msg.body);
       if (body && this.allow(socket)) this.addTalk(room, { sender: "patient", kind: "message", body });
+    } else if (msg.type === "ready") {
+      // Only while paused, and once until the therapist responds.
+      if (!room.paused || room.readyTimer || !this.allow(socket)) return;
+      const resumeAt = new Date(Date.now() + this.readyResumeMs).toISOString();
+      this.addTalk(room, { sender: "patient", kind: "message", body: READY_BODY, ready: true, resumeAt });
+      room.readyTimer = setTimeout(() => this.resumeForReadyPatient(room), this.readyResumeMs);
+      room.readyTimer.unref?.();
     } else if (msg.type === "seen" && typeof msg.ref === "string") {
       const item = room.talk.find((t) => t.ref === msg.ref && t.sender === "therapist" && t.kind === "message");
       if (!item || item.seenAt) return;
@@ -156,9 +171,27 @@ export default class LiveHub {
     }
   }
 
-  /** Keep, relay and save one message / pause / resume. */
-  addTalk(room, { sender, kind, body = null, auto = false }) {
-    const item = { ref: randomUUID(), sender, kind, body, at: new Date().toISOString(), seenAt: null, ...(auto ? { auto } : {}) };
+  /** The patient's "ready" no longer leads to an automatic resume. */
+  cancelReady(room) {
+    if (!room.readyTimer) return;
+    clearTimeout(room.readyTimer);
+    room.readyTimer = null;
+  }
+
+  /** The patient said they're ready and the therapist didn't respond in time: the questions resume. */
+  resumeForReadyPatient(room) {
+    room.readyTimer = null;
+    if (!room.paused) return;
+    room.paused = false;
+    this.addTalk(room, { sender: "patient", kind: "resume", body: READY_RESUMED_BODY, auto: true });
+  }
+
+  /**
+   * Keep, relay and save one message / pause / resume. `extra` (e.g. auto,
+   * ready, resumeAt) is relayed to the browsers but not saved.
+   */
+  addTalk(room, { sender, kind, body = null, ...extra }) {
+    const item = { ref: randomUUID(), sender, kind, body, at: new Date().toISOString(), seenAt: null, ...extra };
     room.talk = [...room.talk, item].slice(-KEEP_IN_ROOM);
     this.sendAll(room, { type: "talk", item });
     if (!this.messages) return;
@@ -193,6 +226,7 @@ export default class LiveHub {
       // The therapist closed the live view while the questions were paused:
       // don't leave the patient waiting for someone who is gone.
       if (room.viewers.size === 0 && room.paused) {
+        this.cancelReady(room);
         room.paused = false;
         this.addTalk(room, {
           sender: "therapist",
@@ -202,7 +236,10 @@ export default class LiveHub {
         });
       }
     }
-    if (!room.patient && room.viewers.size === 0) this.rooms.delete(room.linkId);
+    if (!room.patient && room.viewers.size === 0) {
+      this.cancelReady(room);
+      this.rooms.delete(room.linkId);
+    }
   }
 
   /** Interviews of this therapist with the patient in the room right now. */

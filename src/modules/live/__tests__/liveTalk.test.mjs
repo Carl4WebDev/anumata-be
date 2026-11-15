@@ -133,6 +133,52 @@ describe("the therapist steps in", () => {
     expect(store.save).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "resume" }));
   });
 
+  test("the patient says they're ready: the therapist is told, and the questions resume after a minute", async () => {
+    vi.useFakeTimers();
+    try {
+      const { hub, store, patient, viewer } = setup();
+      hub.message(patient, { type: "ready" }); // not paused: nothing to do
+      expect(viewer.sent.some((m) => m.type === "talk")).toBe(false);
+
+      hub.message(viewer, { type: "pause" });
+      hub.message(patient, { type: "ready" });
+      hub.message(patient, { type: "ready" }); // once until the therapist responds
+      const ready = viewer.sent.filter((m) => m.type === "talk" && m.item.ready);
+      expect(ready).toHaveLength(1);
+      expect(ready[0].item).toMatchObject({ sender: "patient", kind: "message", body: "I'm ready to continue.", resumeAt: expect.any(String) });
+
+      vi.advanceTimersByTime(59_000);
+      expect(hub.rooms.get(1).paused).toBe(true);
+      vi.advanceTimersByTime(1_000);
+      expect(hub.rooms.get(1).paused).toBe(false);
+      expect(last(patient, "talk").item).toMatchObject({ sender: "patient", kind: "resume", auto: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.save).toHaveBeenLastCalledWith(expect.objectContaining({ sender: "patient", kind: "resume" }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the therapist replying or resuming in time cancels the automatic resume", () => {
+    vi.useFakeTimers();
+    try {
+      const { hub, patient, viewer } = setup();
+      hub.message(viewer, { type: "pause" });
+      hub.message(patient, { type: "ready" });
+      hub.message(viewer, { type: "talk", body: "One more thing before we go on." });
+      vi.advanceTimersByTime(120_000);
+      expect(hub.rooms.get(1).paused).toBe(true);
+
+      // Ready again, then the therapist resumes: only one resume.
+      hub.message(patient, { type: "ready" });
+      hub.message(viewer, { type: "resume" });
+      vi.advanceTimersByTime(120_000);
+      expect(patient.sent.filter((m) => m.type === "talk" && m.item.kind === "resume")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("the message still reaches the patient when saving fails", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { hub, patient, viewer } = setup({ messages: { save: vi.fn().mockRejectedValue(new Error("db down")), markSeen: vi.fn() } });
