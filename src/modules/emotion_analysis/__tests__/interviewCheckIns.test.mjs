@@ -11,6 +11,12 @@ describe("check-ins from the interview room", () => {
     expect(checkIns.has(3)).toBe(false);
   });
 
+  test("support mode after red-flag words is kept, including stopping for today", () => {
+    const checkIns = parseCheckIns(JSON.stringify({ 0: { reason: "crisis", outcome: "ended" }, 1: { reason: "crisis", outcome: "continued" } }));
+    expect(checkIns.get(0)).toEqual({ reason: "crisis", outcome: "ended" });
+    expect(checkIns.get(1)).toEqual({ reason: "crisis", outcome: "continued" });
+  });
+
   test("malformed input means none", () => {
     expect(parseCheckIns("oops").size).toBe(0);
     expect(parseCheckIns("[1]").size).toBe(0);

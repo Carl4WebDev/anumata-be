@@ -12,8 +12,10 @@
  * "Neutral" answer and water the results down.
  */
 
-export const CHECK_IN_REASONS = ["no_answer", "said_hard", "head_down", "still"];
-export const CHECK_IN_OUTCOMES = ["continued", "break", "skipped"];
+// "crisis": red-flag words put the room in support mode (questions paused, the patient kept company).
+export const CHECK_IN_REASONS = ["no_answer", "said_hard", "head_down", "still", "crisis"];
+// "ended": the patient chose to stop for today (from support mode).
+export const CHECK_IN_OUTCOMES = ["continued", "break", "skipped", "ended"];
 const MAX_QUESTIONS = 200;
 
 const isIndex = (i) => Number.isInteger(i) && i >= 0 && i < MAX_QUESTIONS;
