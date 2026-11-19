@@ -48,6 +48,11 @@ export default class QuestionSetRepo extends IPQuestionSetRepo {
     return result.rows;
   }
 
+  /**
+   * Saving a set's questions makes them the set's only questions: a set built from
+   * the question bank (question_set_items) has its items replaced in the same
+   * transaction, because interviews use the items whenever a set has any.
+   */
   async update(id, data) {
     const setClauses = [];
     const params = [id];
@@ -65,14 +70,27 @@ export default class QuestionSetRepo extends IPQuestionSetRepo {
     }
 
     setClauses.push(`updated_at = NOW()`);
+    const updateSql = `UPDATE question_sets SET ${setClauses.join(", ")} WHERE question_set_id = $1
+       RETURNING question_set_id, therapist_id, name, description, questions, source_type, created_at, updated_at`;
 
-    const result = await db.query(
-      `UPDATE question_sets SET ${setClauses.join(", ")} WHERE question_set_id = $1
-       RETURNING question_set_id, therapist_id, name, description, questions, created_at, updated_at`,
-      params,
-    );
+    if (data.questions === undefined) {
+      const result = await db.query(updateSql, params);
+      return result.rows[0];
+    }
 
-    return result.rows[0];
+    const client = await db.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(updateSql, params);
+      await client.query(`DELETE FROM question_set_items WHERE question_set_id = $1`, [id]);
+      await client.query("COMMIT");
+      return result.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async remove(id) {
